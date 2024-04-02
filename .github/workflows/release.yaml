@@ -1,0 +1,33 @@
+name: release
+
+on:
+  push:
+    tags:
+      - '*/*'
+
+concurrency:
+  group: release-${{ github.ref }}
+
+
+jobs:
+  release-charts:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - run: |-
+          PKG_NAME=${GITHUB_REF_NAME%%/[0-9\.]*}
+          PKG_VER="${GITHUB_REF_NAME#${PKG_NAME}/}"
+
+          sed -e "s/^version:.*/version: ${PKG_VER}/" -i ${PKG_NAME}/Chart.yaml
+          helm dep up ${PKG_NAME}
+          helm package ${PKG_NAME}
+          helm push "${PKG_NAME}-${PKG_VER}.tgz" "oci://ghcr.io/$GITHUB_REPOSITORY/"
+
