@@ -1,0 +1,17 @@
+---
+neutron:
+  - |
+    Added uwsgi start-time configuration to neutron-api-uwsgi section. The
+    start-time parameter is set to "%t" (unix time at instance startup) and is
+    used by ML2/OVN for creating OVN hash ring registers per worker. This
+    configuration is mandatory for proper ML2/OVN operation. See the Neutron
+    documentation for more details:
+    https://docs.openstack.org/neutron/latest/admin/config-wsgi.html
+features:
+  - |
+    Added `start-time: "%t"` to the neutron_api_uwsgi configuration in
+    values.yaml. This parameter provides the unix timestamp at instance startup
+    and is required by ML2/OVN to create OVN hash ring registers during the
+    initialization process. The value is automatically populated by uWSGI when
+    the Neutron API process starts.
+...
