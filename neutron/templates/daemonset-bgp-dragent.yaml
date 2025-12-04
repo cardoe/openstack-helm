@@ -30,6 +30,10 @@ exec:
 
 {{- $mounts_neutron_bgp_dragent := .Values.pod.mounts.bgp_dragent.bgp_dragent }}
 {{- $mounts_neutron_bgp_dragent_init := .Values.pod.mounts.bgp_dragent.init_container }}
+{{- $etcSources := .Values.pod.etcSources.bgp_dragent }}
+{{- if .Values.manifests.secret_ks_etc }}
+{{- $etcSources = append $etcSources (dict "secret" (dict "name" "neutron-ks-etc")) }}
+{{- end }}
 
 ---
 apiVersion: apps/v1
@@ -56,6 +60,8 @@ spec:
 {{ tuple "neutron_bgp_dragent" . | include "helm-toolkit.snippets.custom_pod_annotations" | indent 8 }}
     spec:
 {{ dict "envAll" $envAll "application" "neutron_bgp_dragent" | include "helm-toolkit.snippets.kubernetes_pod_security_context" | indent 6 }}
+{{ tuple "bgp_dragent" . | include "helm-toolkit.snippets.kubernetes_pod_priority_class" | indent 6 }}
+{{ tuple "bgp_dragent" . | include "helm-toolkit.snippets.kubernetes_pod_runtime_class" | indent 6 }}
       serviceAccountName: {{ $serviceAccountName }}
 {{ if $envAll.Values.pod.tolerations.neutron.enabled }}
 {{ tuple $envAll "neutron" | include "helm-toolkit.snippets.kubernetes_tolerations" | indent 6 }}
@@ -93,6 +99,9 @@ spec:
             - name: neutron-etc
               mountPath: /etc/neutron/neutron.conf
               subPath: neutron.conf
+              readOnly: true
+            - name: neutron-etc-snippets
+              mountPath: /etc/neutron/neutron.conf.d/
               readOnly: true
             {{- if .Values.conf.neutron.DEFAULT.log_config_append }}
             - name: neutron-etc
@@ -144,6 +153,12 @@ spec:
           secret:
             secretName: {{ $configMapName }}
             defaultMode: 0444
+{{- if $etcSources }}
+        - name: neutron-etc-snippets
+          projected:
+            sources:
+{{ toYaml $etcSources | indent 14 }}
+{{ end }}
         - name: libmodules
           hostPath:
             path: /lib/modules

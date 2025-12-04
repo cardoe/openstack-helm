@@ -57,33 +57,33 @@ labels:
 images:
   pull_policy: IfNotPresent
   tags:
-    bootstrap: quay.io/airshipit/heat:2024.1-ubuntu_jammy
-    db_drop: quay.io/airshipit/heat:2024.1-ubuntu_jammy
-    db_init: quay.io/airshipit/heat:2024.1-ubuntu_jammy
-    dep_check: 'quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_focal'
+    bootstrap: quay.io/airshipit/heat:2025.1-ubuntu_noble
+    db_drop: quay.io/airshipit/heat:2025.1-ubuntu_noble
+    db_init: quay.io/airshipit/heat:2025.1-ubuntu_noble
+    dep_check: 'quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy'
     rabbit_init: docker.io/rabbitmq:3.13-management
-    ks_user: quay.io/airshipit/heat:2024.1-ubuntu_jammy
-    ks_service: quay.io/airshipit/heat:2024.1-ubuntu_jammy
-    nova_archive_deleted_rows: quay.io/airshipit/nova:2024.1-ubuntu_jammy
-    ks_endpoints: quay.io/airshipit/heat:2024.1-ubuntu_jammy
-    nova_api: quay.io/airshipit/nova:2024.1-ubuntu_jammy
-    nova_cell_setup: quay.io/airshipit/nova:2024.1-ubuntu_jammy
-    nova_cell_setup_init: quay.io/airshipit/heat:2024.1-ubuntu_jammy
-    nova_compute: quay.io/airshipit/nova:2024.1-ubuntu_jammy
+    ks_user: quay.io/airshipit/heat:2025.1-ubuntu_noble
+    ks_service: quay.io/airshipit/heat:2025.1-ubuntu_noble
+    nova_archive_deleted_rows: quay.io/airshipit/nova:2025.1-ubuntu_noble
+    ks_endpoints: quay.io/airshipit/heat:2025.1-ubuntu_noble
+    nova_api: quay.io/airshipit/nova:2025.1-ubuntu_noble
+    nova_cell_setup: quay.io/airshipit/nova:2025.1-ubuntu_noble
+    nova_cell_setup_init: quay.io/airshipit/heat:2025.1-ubuntu_noble
+    nova_compute: quay.io/airshipit/nova:2025.1-ubuntu_noble
     nova_compute_ironic: 'docker.io/kolla/ubuntu-source-nova-compute-ironic:wallaby'
-    nova_compute_ssh: quay.io/airshipit/nova:2024.1-ubuntu_jammy
-    nova_conductor: quay.io/airshipit/nova:2024.1-ubuntu_jammy
-    nova_db_sync: quay.io/airshipit/nova:2024.1-ubuntu_jammy
-    nova_novncproxy: quay.io/airshipit/nova:2024.1-ubuntu_jammy
+    nova_compute_ssh: quay.io/airshipit/nova:2025.1-ubuntu_noble
+    nova_conductor: quay.io/airshipit/nova:2025.1-ubuntu_noble
+    nova_db_sync: quay.io/airshipit/nova:2025.1-ubuntu_noble
+    nova_novncproxy: quay.io/airshipit/nova:2025.1-ubuntu_noble
     nova_novncproxy_assets: 'docker.io/kolla/ubuntu-source-nova-novncproxy:wallaby'
-    nova_scheduler: quay.io/airshipit/nova:2024.1-ubuntu_jammy
+    nova_scheduler: quay.io/airshipit/nova:2025.1-ubuntu_noble
     nova_storage_init: 'docker.io/openstackhelm/ceph-config-helper:latest-ubuntu_jammy'
     # NOTE(portdirect): we simply use the ceph config helper here,
     # as it has both oscli and jq.
     nova_service_cleaner: 'docker.io/openstackhelm/ceph-config-helper:latest-ubuntu_jammy'
-    nova_serialproxy: quay.io/airshipit/nova:2024.1-ubuntu_jammy
-    nova_spiceproxy: quay.io/airshipit/nova:2024.1-ubuntu_jammy
-    nova_spiceproxy_assets: quay.io/airshipit/nova:2024.1-ubuntu_jammy
+    nova_serialproxy: quay.io/airshipit/nova:2025.1-ubuntu_noble
+    nova_spiceproxy: quay.io/airshipit/nova:2025.1-ubuntu_noble
+    nova_spiceproxy_assets: quay.io/airshipit/nova:2025.1-ubuntu_noble
     test: docker.io/xrally/xrally-openstack:2.0.0
     image_repo_sync: docker.io/docker:17.07.0
     nova_wait_for_computes_init: gcr.io/google_containers/hyperkube-amd64:v1.11.6
@@ -1470,6 +1470,7 @@ conf:
       auth_type: password
       auth_version: v3
     cinder:
+      auth_type: password
       catalog_info: volumev3::internalURL
     database:
       max_retries: -1
@@ -1619,6 +1620,8 @@ conf:
       thunder-lock: true
       worker-reload-mercy: 80
       wsgi-file: /var/lib/openstack/bin/nova-api-wsgi
+      stats: 0.0.0.0:1717
+      stats-http: true
   nova_metadata_uwsgi:
     uwsgi:
       add-header: "Connection: close"
@@ -1635,12 +1638,19 @@ conf:
       thunder-lock: true
       worker-reload-mercy: 80
       wsgi-file: /var/lib/openstack/bin/nova-metadata-wsgi
+      stats: 0.0.0.0:1717
+      stats-http: true
 
 # Names of secrets used by bootstrap and environmental checks
 secrets:
   identity:
     admin: nova-keystone-admin
     nova: nova-keystone-user
+    neutron: nova-keystone-neutron
+    placement: nova-keystone-placement
+    cinder: nova-keystone-cinder
+    ironic: nova-keystone-ironic
+    service: nova-keystone-service
     test: nova-keystone-test
   oslo_db:
     admin: nova-db-admin
@@ -1824,30 +1834,40 @@ endpoints:
         project_name: service
         user_domain_name: service
         project_domain_name: service
+      service:
+        role: admin,service
+        region_name: RegionOne
+        username: nova_service_user
+        password: password
+        project_name: service
+        user_domain_name: service
+        project_domain_name: service
       # NOTE(portdirect): the neutron user is not managed by the nova chart
       # these values should match those set in the neutron chart.
       neutron:
+        role: admin,service
         region_name: RegionOne
         project_name: service
         user_domain_name: service
         project_domain_name: service
-        username: neutron
+        username: nova_neutron
         password: password
       # NOTE(portdirect): the ironic user is not managed by the nova chart
       # these values should match those set in the ironic chart.
       ironic:
+        role: admin,service
         auth_type: password
         auth_version: v3
         region_name: RegionOne
         project_name: service
         user_domain_name: service
         project_domain_name: service
-        username: ironic
+        username: nova_ironic
         password: password
       placement:
-        role: admin
+        role: admin,service
         region_name: RegionOne
-        username: placement
+        username: nova_placement
         password: password
         project_name: service
         user_domain_name: service
@@ -1855,7 +1875,7 @@ endpoints:
       cinder:
         role: admin,service
         region_name: RegionOne
-        username: cinder
+        username: nova_cinder
         password: password
         project_name: service
         user_domain_name: service
@@ -1896,6 +1916,22 @@ endpoints:
       api:
         default: 9292
         public: 80
+  volumev3:
+    name: cinderv3
+    hosts:
+      default: cinder-api
+      public: cinder
+    host_fqdn_override:
+      default: null
+    path:
+      default: '/v3'
+      healthcheck: /healthcheck
+    scheme:
+      default: http
+    port:
+      api:
+        default: 8776
+        public: 80
   compute:
     name: nova
     hosts:
@@ -1911,7 +1947,7 @@ endpoints:
       #     crt: null
       #     key: null
     path:
-      default: "/v2.1/%(tenant_id)s"
+      default: "/v2.1/"
     scheme:
       default: 'http'
       service: 'http'
@@ -2354,6 +2390,25 @@ pod:
       - key: node-role.kubernetes.io/control-plane
         operator: Exists
         effect: NoSchedule
+  # -- This allows users to add Kubernetes Projected Volumes to be mounted at /etc/nova/nova.conf.d/
+  ## This is a list of projected volume source objects for each deployment/statefulset/job
+  ## https://kubernetes.io/docs/concepts/storage/projected-volumes/
+  etcSources:
+    nova_compute: []
+    nova_compute_ironic: []
+    nova_api_metadata: []
+    nova_api_osapi: []
+    nova_conductor: []
+    nova_scheduler: []
+    nova_bootstrap: []
+    nova_tests: []
+    nova_novncproxy: []
+    nova_serialproxy: []
+    nova_spiceproxy: []
+    nova_db_sync: []
+    nova_archive_deleted_rows: []
+    nova_service_cleaner: []
+    nova_cell_setup: []
   mounts:
     nova_compute:
       init_container: null
@@ -2644,6 +2699,7 @@ tls:
 
 manifests:
   certificates: false
+  compute_uuid_self_provisioning: true
   configmap_bin: true
   configmap_etc: true
   cron_job_cell_setup: true
@@ -2682,6 +2738,7 @@ manifests:
   secret_db: true
   secret_ingress_tls: true
   secret_keystone: true
+  secret_ks_etc: true
   secret_rabbitmq: true
   secret_registry: true
   service_ingress_metadata: true
@@ -2695,4 +2752,10 @@ manifests:
   service_spiceproxy: true
   service_osapi: true
   statefulset_compute_ironic: false
+
+# List of compute hosts and its respective uuids
+# Items should be in the following format
+# - name: compute-node-hostname
+#   uuid: <compute node's UUID>
+hosts_uuids: []
 ...

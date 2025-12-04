@@ -15,11 +15,11 @@ apiVersion: v2
 appVersion: v0.2.11
 description: OpenStack-Helm Process Exporter for Prometheus
 name: prometheus-process-exporter
-version: 2024.2.0
-home: https://github.com/openstack/openstack-helm-infra
+version: 2025.2.0
+home: https://opendev.org/openstack/openstack-helm
 sources:
   - https://github.com/ncabatoff/process-exporter
-  - https://opendev.org/openstack/openstack-helm-infra
+  - https://opendev.org/openstack/openstack-helm
 maintainers:
   - name: OpenStack-Helm Authors
 dependencies:

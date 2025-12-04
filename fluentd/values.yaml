@@ -25,9 +25,9 @@ labels:
 images:
   tags:
     fluentd: docker.io/openstackhelm/fluentd:latest-debian
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_focal
-    helm_tests: docker.io/openstackhelm/heat:wallaby-ubuntu_focal
-    image_repo_sync: docker.io/library/docker:17.07.0
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
+    helm_tests: quay.io/airshipit/heat:2025.1-ubuntu_noble
+    image_repo_sync: quay.io/airshipit/docker:27.5.0
   pull_policy: IfNotPresent
   local_registry:
     active: false

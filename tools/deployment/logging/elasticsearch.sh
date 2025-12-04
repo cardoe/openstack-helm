@@ -163,25 +163,21 @@ manifests:
   job_s3_bucket: false
   object_bucket_claim: true
 
-# FIXME: The kubernetes-entrypoint image used by default
-# quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_focal
-# can not lookup for global (w/o namespace) custom resources
-# but ObjectBucket CRs are global and we have them as dependencies
-# for two elasticsearch jobs.
 images:
   tags:
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:v1.0.0
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
+
 EOF
 
-: ${OSH_INFRA_HELM_REPO:="../openstack-helm-infra"}
-: ${OSH_INFRA_VALUES_OVERRIDES_PATH:="../openstack-helm-infra/values_overrides"}
-: ${OSH_INFRA_EXTRA_HELM_ARGS_ELASTICSEARCH:="$(helm osh get-values-overrides -p ${OSH_INFRA_VALUES_OVERRIDES_PATH} -c elasticsearch ${FEATURES})"}
+: ${OSH_HELM_REPO:="../openstack-helm"}
+: ${OSH_VALUES_OVERRIDES_PATH:="../openstack-helm/values_overrides"}
+: ${OSH_EXTRA_HELM_ARGS_ELASTICSEARCH:="$(helm osh get-values-overrides -p ${OSH_VALUES_OVERRIDES_PATH} -c elasticsearch ${FEATURES})"}
 
-helm upgrade --install elasticsearch ${OSH_INFRA_HELM_REPO}/elasticsearch \
+helm upgrade --install elasticsearch ${OSH_HELM_REPO}/elasticsearch \
   --namespace=osh-infra \
   --values=/tmp/elasticsearch.yaml\
-  ${OSH_INFRA_EXTRA_HELM_ARGS} \
-  ${OSH_INFRA_EXTRA_HELM_ARGS_ELASTICSEARCH}
+  ${OSH_EXTRA_HELM_ARGS} \
+  ${OSH_EXTRA_HELM_ARGS_ELASTICSEARCH}
 
 #NOTE: Wait for deploy
 helm osh wait-for-pods osh-infra

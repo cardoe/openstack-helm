@@ -52,6 +52,10 @@ exec:
 
 {{- $mounts_neutron_dhcp_agent := .Values.pod.mounts.neutron_dhcp_agent.neutron_dhcp_agent }}
 {{- $mounts_neutron_dhcp_agent_init := .Values.pod.mounts.neutron_dhcp_agent.init_container }}
+{{- $etcSources := .Values.pod.etcSources.neutron_dhcp_agent }}
+{{- if .Values.manifests.secret_ks_etc }}
+{{- $etcSources = append $etcSources (dict "secret" (dict "name" "neutron-ks-etc")) }}
+{{- end }}
 
 ---
 apiVersion: apps/v1
@@ -79,6 +83,8 @@ spec:
 {{ dict "envAll" $envAll "podName" "neutron-dhcp-agent-default" "containerNames" (list "neutron-dhcp-agent" "neutron-dhcp-agent-init" "init") | include "helm-toolkit.snippets.kubernetes_mandatory_access_control_annotation" | indent 8 }}
     spec:
 {{ dict "envAll" $envAll "application" "neutron_dhcp_agent" | include "helm-toolkit.snippets.kubernetes_pod_security_context" | indent 6 }}
+{{ tuple "neutron_dhcp_agent" . | include "helm-toolkit.snippets.kubernetes_pod_priority_class" | indent 6 }}
+{{ tuple "neutron_dhcp_agent" . | include "helm-toolkit.snippets.kubernetes_pod_runtime_class" | indent 6 }}
       serviceAccountName: {{ $serviceAccountName }}
 {{ if $envAll.Values.pod.tolerations.neutron.enabled }}
 {{ tuple $envAll "neutron" | include "helm-toolkit.snippets.kubernetes_tolerations" | indent 6 }}
@@ -94,6 +100,19 @@ spec:
       {{- end }}
       initContainers:
 {{ tuple $envAll "pod_dependency" $mounts_neutron_dhcp_agent_init | include "helm-toolkit.snippets.kubernetes_entrypoint_init_container" | indent 8 }}
+        {{- if ( has "ovn" .Values.network.backend ) }}
+        - name: ovn-neutron-init
+{{ tuple $envAll "neutron_dhcp" | include "helm-toolkit.snippets.image" | indent 10 }}
+          command:
+            - /tmp/neutron-ovn-init.sh
+          volumeMounts:
+            - name: pod-shared
+              mountPath: /tmp/pod-shared
+            - name: neutron-bin
+              mountPath: /tmp/neutron-ovn-init.sh
+              subPath: neutron-ovn-init.sh
+              readOnly: true
+        {{- end }}
         - name: neutron-dhcp-agent-init
 {{ tuple $envAll "neutron_dhcp" | include "helm-toolkit.snippets.image" | indent 10 }}
 {{ tuple $envAll $envAll.Values.pod.resources.agent.dhcp | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
@@ -112,6 +131,9 @@ spec:
             - name: neutron-etc
               mountPath: /etc/neutron/neutron.conf
               subPath: neutron.conf
+              readOnly: true
+            - name: neutron-etc-snippets
+              mountPath: /etc/neutron/neutron.conf.d/
               readOnly: true
             - name: neutron-etc
               mountPath: /etc/neutron/dhcp_agent.ini
@@ -187,6 +209,9 @@ spec:
               mountPath: /etc/neutron/neutron.conf
               subPath: neutron.conf
               readOnly: true
+            - name: neutron-etc-snippets
+              mountPath: /etc/neutron/neutron.conf.d/
+              readOnly: true
             {{- if .Values.conf.neutron.DEFAULT.log_config_append }}
             - name: neutron-etc
               mountPath: {{ .Values.conf.neutron.DEFAULT.log_config_append }}
@@ -245,6 +270,10 @@ spec:
               mountPath: /run/netns
               mountPropagation: Bidirectional
             {{- end }}
+            {{- if ( has "ovn" .Values.network.backend ) }}
+            - name: run-openvswitch
+              mountPath: /run/openvswitch
+            {{- end }}
 {{- dict "enabled" $envAll.Values.manifests.certificates "name" $envAll.Values.endpoints.oslo_messaging.auth.admin.secret.tls.internal "path" "/etc/rabbitmq/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
 {{ if $mounts_neutron_dhcp_agent.volumeMounts }}{{ toYaml $mounts_neutron_dhcp_agent.volumeMounts | indent 12 }}{{ end }}
       volumes:
@@ -260,6 +289,12 @@ spec:
           secret:
             secretName: {{ $configMapName }}
             defaultMode: 0444
+{{- if $etcSources }}
+        - name: neutron-etc-snippets
+          projected:
+            sources:
+{{ toYaml $etcSources | indent 14 }}
+{{ end }}
         - name: iptables-lockfile
           hostPath:
             path: /run/xtables.lock
@@ -273,6 +308,11 @@ spec:
         - name: host-run-netns
           hostPath:
             path: /run/netns
+        {{- end }}
+        {{- if ( has "ovn" .Values.network.backend ) }}
+        - name: run-openvswitch
+          hostPath:
+            path: /run/openvswitch
         {{- end }}
 {{- dict "enabled" $envAll.Values.manifests.certificates "name" $envAll.Values.endpoints.oslo_messaging.auth.admin.secret.tls.internal | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
 {{ if $mounts_neutron_dhcp_agent.volumes }}{{ toYaml $mounts_neutron_dhcp_agent.volumes | indent 8 }}{{ end }}

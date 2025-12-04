@@ -46,6 +46,8 @@ spec:
 {{ tuple "cinder_scheduler" . | include "helm-toolkit.snippets.custom_pod_annotations" | indent 8 }}
 {{ dict "envAll" $envAll "podName" "cinder-scheduler" "containerNames" (list "cinder-scheduler" "ceph-coordination-volume-perms" "init") | include "helm-toolkit.snippets.kubernetes_mandatory_access_control_annotation" | indent 8 }}
     spec:
+{{ tuple "cinder_scheduler" . | include "helm-toolkit.snippets.kubernetes_pod_priority_class" | indent 6 }}
+{{ tuple "cinder_scheduler" . | include "helm-toolkit.snippets.kubernetes_pod_runtime_class" | indent 6 }}
       serviceAccountName: {{ $serviceAccountName }}
 {{ dict "envAll" $envAll "application" "cinder_scheduler" | include "helm-toolkit.snippets.kubernetes_pod_security_context" | indent 6 }}
       affinity:
@@ -82,6 +84,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: pod-var-cinder
+              mountPath: {{ .Values.conf.cinder.DEFAULT.state_path }}
             - name: cinder-bin
               mountPath: /tmp/cinder-scheduler.sh
               subPath: cinder-scheduler.sh
@@ -114,6 +118,8 @@ spec:
 {{ if $mounts_cinder_scheduler.volumeMounts }}{{ toYaml $mounts_cinder_scheduler.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: pod-var-cinder
           emptyDir: {}
         - name: cinder-bin
           configMap:

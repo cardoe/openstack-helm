@@ -10,25 +10,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 ---
-kube_version_repo: "v1.31"
+kube_version_repo: "v1.32"
 # the list of k8s package versions are available here
 # https://pkgs.k8s.io/core:/stable:/{{ kube_version_repo }}/deb/Packages
-kube_version: "1.31.3-1.1"
-helm_version: "v3.14.0"
-crictl_version: "v1.30.1"
+kube_version: "1.32.5-1.1"
+helm_version: "v3.18.1"
+crictl_version: "v1.33.0"
 
 calico_setup: true
-calico_version: "v3.27.4"
+calico_version: "v3.30.1"
 calico_manifest_url: "https://raw.githubusercontent.com/projectcalico/calico/{{ calico_version }}/manifests/calico.yaml"
 
 cilium_setup: false
-cilium_version: "1.16.0"
+cilium_version: "1.17.4"
 
 flannel_setup: false
-flannel_version: v0.25.4
+flannel_version: v0.26.7
 
 ingress_setup: false
-ingress_nginx_version: "4.8.3"
+ingress_nginx_version: "4.12.2"
 ingress_openstack_setup: true
 ingress_ceph_setup: true
 ingress_osh_infra_setup: false
@@ -53,12 +53,13 @@ loopback_device: /dev/loop100
 loopback_image: /var/lib/openstack-helm/ceph-loop.img
 loopback_image_size: 12G
 
-coredns_resolver_setup: true
+coredns_resolver_setup: false
 
-metallb_setup: false
-metallb_version: "0.13.12"
+metallb_setup: true
+metallb_version: "0.14.9"
 metallb_pool_cidr: "172.24.128.0/24"
 metallb_openstack_endpoint_cidr: "172.24.128.100/24"
+metallb_osh_infra_endpoint_cidr: "172.24.128.101/24"
 
 client_cluster_ssh_setup: true
 client_ssh_user: zuul
@@ -74,4 +75,16 @@ tunnel_cluster_cidr: "172.24.5.1/24"
 
 dnsmasq_image: "quay.io/airshipit/neutron:2024.2-ubuntu_jammy"
 nginx_image: "quay.io/airshipit/nginx:alpine3.18"
+
+overlay_network_setup: true
+overlay_network_prefix: "10.248.0."
+overlay_network_vxlan_iface: vxlan42
+overlay_network_vxlan_id: 42
+# NOTE: This is to avoid conflicts with the vxlan overlay managed by Openstack
+# which uses 4789 by default. Some alternative implementations used to
+# leverage 8472, so let's use it.
+overlay_network_vxlan_port: 8472
+overlay_network_bridge_name: brvxlan
+overlay_network_bridge_ip: "{{ overlay_network_prefix }}{{ (groups['all'] | sort).index(inventory_hostname) + 1 }}"
+overlay_network_underlay_dev: "{{ hostvars[inventory_hostname]['ansible_default_ipv4']['interface'] }}"
 ...

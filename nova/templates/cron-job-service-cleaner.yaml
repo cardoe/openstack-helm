@@ -17,6 +17,10 @@ limitations under the License.
 
 {{- $serviceAccountName := "nova-service-cleaner" }}
 {{ tuple $envAll "service_cleaner" $serviceAccountName | include "helm-toolkit.snippets.kubernetes_pod_rbac_serviceaccount" }}
+{{- $etcSources := .Values.pod.etcSources.nova_service_cleaner }}
+{{- if eq .Values.manifests.secret_ks_etc true }}
+{{- $etcSources = append $etcSources (dict "secret" (dict "name" "nova-ks-etc")) }}
+{{- end }}
 ---
 apiVersion: batch/v1
 kind: CronJob
@@ -42,6 +46,8 @@ spec:
           labels:
 {{ tuple $envAll "nova" "service-cleaner" | include "helm-toolkit.snippets.kubernetes_metadata_labels" | indent 12 }}
         spec:
+{{ tuple "nova_service_cleaner" . | include "helm-toolkit.snippets.kubernetes_pod_priority_class" | indent 10 }}
+{{ tuple "nova_service_cleaner" . | include "helm-toolkit.snippets.kubernetes_pod_runtime_class" | indent 10 }}
           serviceAccountName: {{ $serviceAccountName }}
 {{ dict "envAll" $envAll "application" "service_cleaner" | include "helm-toolkit.snippets.kubernetes_pod_security_context" | indent 10 }}
           restartPolicy: OnFailure
@@ -72,6 +78,9 @@ spec:
                   readOnly: true
                 - name: etcnova
                   mountPath: /etc/nova
+                - name: nova-etc-snippets
+                  mountPath: /etc/nova/nova.conf.d/
+                  readOnly: true
 {{- dict "enabled" (or .Values.manifests.certificates .Values.tls.identity) "name" .Values.secrets.tls.compute.osapi.internal | include "helm-toolkit.snippets.tls_volume_mount" | indent 16 }}
           volumes:
             - name: pod-tmp
@@ -86,5 +95,11 @@ spec:
               configMap:
                 name: nova-bin
                 defaultMode: 0555
+{{- if $etcSources }}
+            - name: nova-etc-snippets
+              projected:
+                sources:
+{{ toYaml $etcSources | indent 18 }}
+{{ end }}
 {{- dict "enabled" (or .Values.manifests.certificates .Values.tls.identity) "name" .Values.secrets.tls.compute.osapi.internal | include "helm-toolkit.snippets.tls_volume" | indent 12 }}
 {{- end }}

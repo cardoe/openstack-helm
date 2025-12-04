@@ -25,9 +25,6 @@ labels:
   cfn:
     node_selector_key: openstack-control-plane
     node_selector_value: enabled
-  cloudwatch:
-    node_selector_key: openstack-control-plane
-    node_selector_value: enabled
   engine:
     node_selector_key: openstack-control-plane
     node_selector_value: enabled
@@ -41,21 +38,20 @@ labels:
 images:
   tags:
     test: docker.io/xrally/xrally-openstack:2.0.0
-    bootstrap: quay.io/airshipit/heat:2024.1-ubuntu_jammy
-    db_init: quay.io/airshipit/heat:2024.1-ubuntu_jammy
-    heat_db_sync: quay.io/airshipit/heat:2024.1-ubuntu_jammy
-    db_drop: quay.io/airshipit/heat:2024.1-ubuntu_jammy
+    bootstrap: quay.io/airshipit/heat:2025.1-ubuntu_noble
+    db_init: quay.io/airshipit/heat:2025.1-ubuntu_noble
+    heat_db_sync: quay.io/airshipit/heat:2025.1-ubuntu_noble
+    db_drop: quay.io/airshipit/heat:2025.1-ubuntu_noble
     rabbit_init: docker.io/rabbitmq:3.13-management
-    ks_user: quay.io/airshipit/heat:2024.1-ubuntu_jammy
-    ks_service: quay.io/airshipit/heat:2024.1-ubuntu_jammy
-    ks_endpoints: quay.io/airshipit/heat:2024.1-ubuntu_jammy
-    heat_api: quay.io/airshipit/heat:2024.1-ubuntu_jammy
-    heat_cfn: quay.io/airshipit/heat:2024.1-ubuntu_jammy
-    heat_cloudwatch: quay.io/airshipit/heat:2024.1-ubuntu_jammy
-    heat_engine: quay.io/airshipit/heat:2024.1-ubuntu_jammy
-    heat_engine_cleaner: quay.io/airshipit/heat:2024.1-ubuntu_jammy
-    heat_purge_deleted: quay.io/airshipit/heat:2024.1-ubuntu_jammy
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_focal
+    ks_user: quay.io/airshipit/heat:2025.1-ubuntu_noble
+    ks_service: quay.io/airshipit/heat:2025.1-ubuntu_noble
+    ks_endpoints: quay.io/airshipit/heat:2025.1-ubuntu_noble
+    heat_api: quay.io/airshipit/heat:2025.1-ubuntu_noble
+    heat_cfn: quay.io/airshipit/heat:2025.1-ubuntu_noble
+    heat_engine: quay.io/airshipit/heat:2025.1-ubuntu_noble
+    heat_engine_cleaner: quay.io/airshipit/heat:2025.1-ubuntu_noble
+    heat_purge_deleted: quay.io/airshipit/heat:2025.1-ubuntu_noble
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
     image_repo_sync: docker.io/docker:17.07.0
   pull_policy: "IfNotPresent"
   local_registry:
@@ -291,19 +287,12 @@ conf:
       pipeline: cors http_proxy_to_wsgi cfnversionnegotiation osprofiler ec2authtoken authtoken audit context apicfnv1app
     pipeline:heat-api-cfn-standalone:
       pipeline: cors http_proxy_to_wsgi cfnversionnegotiation ec2authtoken context apicfnv1app
-    pipeline:heat-api-cloudwatch:
-      pipeline: cors versionnegotiation osprofiler ec2authtoken authtoken audit context apicwapp
-    pipeline:heat-api-cloudwatch-standalone:
-      pipeline: cors versionnegotiation ec2authtoken context apicwapp
     app:apiv1app:
       paste.app_factory: heat.common.wsgi:app_factory
       heat.app_factory: heat.api.openstack.v1:API
     app:apicfnv1app:
       paste.app_factory: heat.common.wsgi:app_factory
       heat.app_factory: heat.api.cfn.v1:API
-    app:apicwapp:
-      paste.app_factory: heat.common.wsgi:app_factory
-      heat.app_factory: heat.api.cloudwatch:API
     filter:versionnegotiation:
       paste.filter_factory: heat.common.wsgi:filter_factory
       heat.filter_factory: heat.api.openstack:version_negotiation_filter
@@ -316,9 +305,6 @@ conf:
     filter:cfnversionnegotiation:
       paste.filter_factory: heat.common.wsgi:filter_factory
       heat.filter_factory: heat.api.cfn:version_negotiation_filter
-    filter:cwversionnegotiation:
-      paste.filter_factory: heat.common.wsgi:filter_factory
-      heat.filter_factory: heat.api.cloudwatch:version_negotiation_filter
     filter:context:
       paste.filter_factory: heat.common.context:ContextMiddleware_filter_factory
     filter:ec2authtoken:
@@ -358,11 +344,6 @@ conf:
       auth_type: password
       auth_version: v3
     heat_api:
-      # NOTE(portdirect): the bind port should not be defined, and is manipulated
-      # via the endpoints section.
-      bind_port: null
-      workers: 1
-    heat_api_cloudwatch:
       # NOTE(portdirect): the bind port should not be defined, and is manipulated
       # via the endpoints section.
       bind_port: null
@@ -506,6 +487,8 @@ conf:
       thunder-lock: true
       worker-reload-mercy: 80
       wsgi-file: /var/lib/openstack/bin/heat-wsgi-api
+      stats: 0.0.0.0:1717
+      stats-http: true
   heat_api_cfn_uwsgi:
     uwsgi:
       add-header: "Connection: close"
@@ -522,6 +505,8 @@ conf:
       thunder-lock: true
       worker-reload-mercy: 80
       wsgi-file: /var/lib/openstack/bin/heat-wsgi-api-cfn
+      stats: 0.0.0.0:1717
+      stats-http: true
 
 network:
   api:
@@ -547,17 +532,6 @@ network:
     node_port:
       enabled: false
       port: 30800
-  cloudwatch:
-    ingress:
-      public: true
-      classes:
-        namespace: "nginx"
-        cluster: "nginx-cluster"
-      annotations:
-        nginx.ingress.kubernetes.io/rewrite-target: /
-    node_port:
-      enabled: false
-      port: 30003
 
 bootstrap:
   enabled: true
@@ -584,7 +558,6 @@ dependencies:
         - heat-db-sync
         - heat-rabbit-init
         - heat-ks-user
-        - heat-trustee-ks-user
         - heat-domain-ks-user
         - heat-ks-endpoints
         - heat-bootstrap
@@ -600,23 +573,6 @@ dependencies:
         - heat-db-sync
         - heat-rabbit-init
         - heat-ks-user
-        - heat-trustee-ks-user
-        - heat-domain-ks-user
-        - heat-ks-endpoints
-        - heat-bootstrap
-      services:
-        - endpoint: internal
-          service: oslo_db
-        - endpoint: internal
-          service: oslo_messaging
-        - endpoint: internal
-          service: identity
-    cloudwatch:
-      jobs:
-        - heat-db-sync
-        - heat-rabbit-init
-        - heat-ks-user
-        - heat-trustee-ks-user
         - heat-domain-ks-user
         - heat-ks-endpoints
         - heat-bootstrap
@@ -650,7 +606,6 @@ dependencies:
         - heat-db-sync
         - heat-rabbit-init
         - heat-ks-user
-        - heat-trustee-ks-user
         - heat-domain-ks-user
         - heat-ks-endpoints
         - heat-bootstrap
@@ -665,7 +620,6 @@ dependencies:
       jobs:
         - heat-db-sync
         - heat-ks-user
-        - heat-trustee-ks-user
         - heat-domain-ks-user
         - heat-ks-endpoints
       services:
@@ -679,7 +633,6 @@ dependencies:
       jobs:
         - heat-db-sync
         - heat-ks-user
-        - heat-trustee-ks-user
         - heat-domain-ks-user
         - heat-ks-endpoints
       services:
@@ -710,7 +663,6 @@ dependencies:
     trusts:
       jobs:
         - heat-ks-user
-        - heat-trustee-ks-user
         - heat-domain-ks-user
       services:
         - endpoint: internal
@@ -885,25 +837,6 @@ endpoints:
         default: 8000
         public: 80
         service: 8000
-  # Cloudwatch does not get an entry in the keystone service catalog
-  cloudwatch:
-    name: heat-cloudwatch
-    hosts:
-      default: heat-cloudwatch
-      public: cloudwatch
-    host_fqdn_override:
-      default: null
-    path:
-      default: null
-    type: null
-    scheme:
-      default: 'http'
-      service: 'http'
-    port:
-      api:
-        default: 8003
-        public: 80
-        service: 8003
   oslo_db:
     auth:
       admin:
@@ -1016,9 +949,6 @@ pod:
         heat_cfn:
           readOnlyRootFilesystem: true
           allowPrivilegeEscalation: false
-        heat_cloudwatch:
-          readOnlyRootFilesystem: true
-          allowPrivilegeEscalation: false
         heat_engine:
           readOnlyRootFilesystem: true
           allowPrivilegeEscalation: false
@@ -1072,11 +1002,6 @@ pod:
       heat_cfn:
         volumeMounts:
         volumes:
-    heat_cloudwatch:
-      init_container: null
-      heat_cloudwatch:
-        volumeMounts:
-        volumes:
     heat_engine:
       init_container: null
       heat_engine:
@@ -1114,7 +1039,6 @@ pod:
   replicas:
     api: 1
     cfn: 1
-    cloudwatch: 1
     engine: 1
   lifecycle:
     upgrades:
@@ -1129,14 +1053,10 @@ pod:
         min_available: 0
       cfn:
         min_available: 0
-      cloudwatch:
-        min_available: 0
     termination_grace_period:
       api:
         timeout: 30
       cfn:
-        timeout: 30
-      cloudwatch:
         timeout: 30
       engine:
         timeout: 30
@@ -1150,13 +1070,6 @@ pod:
         memory: "1024Mi"
         cpu: "2000m"
     cfn:
-      requests:
-        memory: "128Mi"
-        cpu: "100m"
-      limits:
-        memory: "1024Mi"
-        cpu: "2000m"
-    cloudwatch:
       requests:
         memory: "128Mi"
         cpu: "100m"
@@ -1262,6 +1175,15 @@ pod:
         limits:
           memory: "1024Mi"
           cpu: "2000m"
+  probes:
+    api:
+      heat_api:
+        liveness:
+          port: 1717
+    cfn:
+      heat_cfn:
+        liveness:
+          port: 1717
 
 network_policy:
   heat:
@@ -1287,11 +1209,9 @@ manifests:
   cron_job_purge_deleted: true
   deployment_api: true
   deployment_cfn: true
-  deployment_cloudwatch: false
   deployment_engine: true
   ingress_api: true
   ingress_cfn: true
-  ingress_cloudwatch: false
   job_bootstrap: true
   job_db_init: true
   job_db_sync: true
@@ -1305,7 +1225,6 @@ manifests:
   job_rabbit_init: true
   pdb_api: true
   pdb_cfn: true
-  pdb_cloudwatch: false
   pod_rally_test: true
   network_policy: false
   secret_db: true
@@ -1315,9 +1234,7 @@ manifests:
   secret_registry: true
   service_api: true
   service_cfn: true
-  service_cloudwatch: false
   service_ingress_api: true
   service_ingress_cfn: true
-  service_ingress_cloudwatch: false
   statefulset_engine: false
 ...

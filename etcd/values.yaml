@@ -19,8 +19,8 @@
 images:
   tags:
     etcd: 'registry.k8s.io/etcd-amd64:3.4.3'
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_focal
-    image_repo_sync: docker.io/library/docker:17.07.0
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
+    image_repo_sync: quay.io/airshipit/docker:27.5.0
     etcd_db_compact: 'registry.k8s.io/etcd-amd64:3.4.3'
   pull_policy: "IfNotPresent"
   local_registry:
@@ -82,11 +82,6 @@ pod:
           capabilities:
             drop:
               - ALL
-  mandatory_access_control:
-    type: apparmor
-    etcd:
-      init: runtime/default
-      etcd: runtime/default
   probes:
     etcd:
       etcd:

@@ -15,11 +15,11 @@ apiVersion: v2
 appVersion: v1.0.0
 description: OpenStack-Helm Kubernetes Node Problem Detector
 name: kubernetes-node-problem-detector
-version: 2024.2.0
+version: 2025.2.0
 home: https://github.com/kubernetes/node-problem-detector
 sources:
   - https://github.com/kubernetes/node-problem-detector
-  - https://opendev.org/openstack/openstack-helm-infra
+  - https://opendev.org/openstack/openstack-helm
 maintainers:
   - name: OpenStack-Helm Authors
 dependencies:

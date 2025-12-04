@@ -20,6 +20,10 @@ limitations under the License.
 
 {{- $mounts_neutron_ironic_agent := .Values.pod.mounts.neutron_ironic_agent.neutron_ironic_agent }}
 {{- $mounts_neutron_ironic_agent_init := .Values.pod.mounts.neutron_ironic_agent.init_container }}
+{{- $etcSources := .Values.pod.etcSources.neutron_ironic_agent }}
+{{- if .Values.manifests.secret_ks_etc }}
+{{- $etcSources = append $etcSources (dict "secret" (dict "name" "neutron-ks-etc")) }}
+{{- end }}
 
 {{- $serviceAccountName := "neutron-ironic-agent" }}
 {{ tuple $envAll "pod_dependency" $serviceAccountName | include "helm-toolkit.snippets.kubernetes_pod_rbac_serviceaccount" }}
@@ -49,6 +53,8 @@ spec:
 {{ tuple "neutron_ironic_agent" . | include "helm-toolkit.snippets.custom_pod_annotations" | indent 8 }}
     spec:
 {{ dict "envAll" $envAll "application" "neutron_ironic_agent" | include "helm-toolkit.snippets.kubernetes_pod_security_context" | indent 6 }}
+{{ tuple "neutron_ironic_agent" . | include "helm-toolkit.snippets.kubernetes_pod_priority_class" | indent 6 }}
+{{ tuple "neutron_ironic_agent" . | include "helm-toolkit.snippets.kubernetes_pod_runtime_class" | indent 6 }}
       serviceAccountName: {{ $serviceAccountName }}
       affinity:
 {{ tuple $envAll "neutron" "ironic_agent" | include "helm-toolkit.snippets.kubernetes_pod_anti_affinity" | indent 8 }}
@@ -60,6 +66,19 @@ spec:
       terminationGracePeriodSeconds: {{ .Values.pod.lifecycle.termination_grace_period.ironic_agent.timeout | default "30" }}
       initContainers:
 {{ tuple $envAll "pod_dependency" $mounts_neutron_ironic_agent_init | include "helm-toolkit.snippets.kubernetes_entrypoint_init_container" | indent 8 }}
+        - name: neutron-ironic-agent-init
+{{ tuple $envAll "neutron_ironic_agent_init" | include "helm-toolkit.snippets.image" | indent 10 }}
+{{ tuple $envAll $envAll.Values.pod.resources.ironic_agent | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
+{{ dict "envAll" $envAll "application" "neutron_ironic_agent" "container" "neutron_ironic_agent_init" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
+          command:
+            - /tmp/neutron-ironic-agent-init.sh
+          volumeMounts:
+            - name: pod-shared
+              mountPath: /tmp/pod-shared
+            - name: neutron-bin
+              mountPath: /tmp/neutron-ironic-agent-init.sh
+              subPath: neutron-ironic-agent-init.sh
+              readOnly: true
       containers:
         - name: neutron-ironic-agent
 {{ tuple $envAll "neutron_ironic_agent" | include "helm-toolkit.snippets.image" | indent 10 }}
@@ -79,6 +98,8 @@ spec:
               mountPath: /tmp
             - name: pod-var-neutron
               mountPath: {{ .Values.conf.neutron.DEFAULT.state_path }}
+            - name: pod-shared
+              mountPath: /tmp/pod-shared
             - name: neutron-bin
               mountPath: /tmp/neutron-ironic-agent.sh
               subPath: neutron-ironic-agent.sh
@@ -86,6 +107,9 @@ spec:
             - name: neutron-etc
               mountPath: /etc/neutron/neutron.conf
               subPath: neutron.conf
+              readOnly: true
+            - name: neutron-etc-snippets
+              mountPath: /etc/neutron/neutron.conf.d/
               readOnly: true
             {{- if .Values.conf.neutron.DEFAULT.log_config_append }}
             - name: neutron-etc
@@ -104,6 +128,8 @@ spec:
           emptyDir: {}
         - name: pod-var-neutron
           emptyDir: {}
+        - name: pod-shared
+          emptyDir: {}
         - name: neutron-bin
           configMap:
             name: neutron-bin
@@ -112,6 +138,12 @@ spec:
           secret:
             secretName: neutron-etc
             defaultMode: 0444
+{{- if $etcSources }}
+        - name: neutron-etc-snippets
+          projected:
+            sources:
+{{ toYaml $etcSources | indent 14 }}
+{{ end }}
 {{- dict "enabled" $envAll.Values.manifests.certificates "name" $envAll.Values.endpoints.oslo_messaging.auth.admin.secret.tls.internal | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
 {{ if $mounts_neutron_ironic_agent.volumes }}{{ toYaml $mounts_neutron_ironic_agent.volumes | indent 8 }}{{ end }}
 {{- end }}

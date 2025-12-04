@@ -20,8 +20,8 @@ images:
   tags:
     apache_proxy: docker.io/library/httpd:2.4
     prometheus-alertmanager: docker.io/prom/alertmanager:v0.20.0
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_focal
-    image_repo_sync: docker.io/library/docker:17.07.0
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
+    image_repo_sync: quay.io/airshipit/docker:27.5.0
   pull_policy: IfNotPresent
   local_registry:
     active: false
@@ -224,6 +224,9 @@ storage:
     requests:
       storage: 5Gi
     storage_class: general
+    use_local_path:
+      enabled: false
+      host_path: /var/lib/prometheus-alertmanager-data
 
 manifests:
   clusterrolebinding: true

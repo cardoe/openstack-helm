@@ -44,18 +44,18 @@ helm3_hook: true
 
 images:
   tags:
-    bootstrap: quay.io/airshipit/heat:2024.1-ubuntu_jammy
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_focal
-    db_init: quay.io/airshipit/heat:2024.1-ubuntu_jammy
-    manila_db_sync: quay.io/airshipit/manila:2024.1-ubuntu_jammy
-    db_drop: quay.io/airshipit/heat:2024.1-ubuntu_jammy
-    ks_user: quay.io/airshipit/heat:2024.1-ubuntu_jammy
-    ks_service: quay.io/airshipit/heat:2024.1-ubuntu_jammy
-    ks_endpoints: quay.io/airshipit/heat:2024.1-ubuntu_jammy
-    manila_api: quay.io/airshipit/manila:2024.1-ubuntu_jammy
-    manila_data: quay.io/airshipit/manila:2024.1-ubuntu_jammy
-    manila_scheduler: quay.io/airshipit/manila:2024.1-ubuntu_jammy
-    manila_share: quay.io/airshipit/manila:2024.1-ubuntu_jammy
+    bootstrap: quay.io/airshipit/heat:2025.1-ubuntu_noble
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
+    db_init: quay.io/airshipit/heat:2025.1-ubuntu_noble
+    manila_db_sync: quay.io/airshipit/manila:2025.1-ubuntu_noble
+    db_drop: quay.io/airshipit/heat:2025.1-ubuntu_noble
+    ks_user: quay.io/airshipit/heat:2025.1-ubuntu_noble
+    ks_service: quay.io/airshipit/heat:2025.1-ubuntu_noble
+    ks_endpoints: quay.io/airshipit/heat:2025.1-ubuntu_noble
+    manila_api: quay.io/airshipit/manila:2025.1-ubuntu_noble
+    manila_data: quay.io/airshipit/manila:2025.1-ubuntu_noble
+    manila_scheduler: quay.io/airshipit/manila:2025.1-ubuntu_noble
+    manila_share: quay.io/airshipit/manila:2025.1-ubuntu_noble
     rabbit_init: docker.io/rabbitmq:3.13-management
     image_repo_sync: docker.io/docker:17.07.0
   pull_policy: "IfNotPresent"
@@ -865,13 +865,16 @@ conf:
       route-user-agent: '^kube-probe.* donotlog:'
       thunder-lock: true
       worker-reload-mercy: 80
-      wsgi-file: /var/lib/openstack/bin/manila-wsgi
+      module: "manila.wsgi.api:application"
+      stats: 0.0.0.0:1717
+      stats-http: true
 
 # Names of secrets used by bootstrap and environmental checks
 secrets:
   identity:
     admin: manila-keystone-admin
     manila: manila-keystone-user
+    test: manila-keystone-test
   oslo_db:
     admin: manila-db-admin
     manila: manila-db-user
@@ -931,6 +934,14 @@ endpoints:
         username: manila
         password: password
         project_name: service
+        user_domain_name: service
+        project_domain_name: service
+      test:
+        role: admin
+        region_name: RegionOne
+        username: manila-test
+        password: password
+        project_name: test
         user_domain_name: service
         project_domain_name: service
     hosts:
@@ -1105,7 +1116,7 @@ manifests:
   job_ks_service: true
   job_ks_user: true
   pdb_api: true
-  pod_test: true
+  pod_rally_test: true
   secret_db: true
   network_policy: false
   secret_ingress_tls: true

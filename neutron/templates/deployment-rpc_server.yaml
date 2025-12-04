@@ -20,6 +20,10 @@ limitations under the License.
 
 {{- $mounts_neutron_rpc_server := .Values.pod.mounts.neutron_rpc_server.neutron_rpc_server }}
 {{- $mounts_neutron_rpc_server_init := .Values.pod.mounts.neutron_rpc_server.init_container }}
+{{- $etcSources := .Values.pod.etcSources.neutron_rpc_server }}
+{{- if .Values.manifests.secret_ks_etc }}
+{{- $etcSources = append $etcSources (dict "secret" (dict "name" "neutron-ks-etc")) }}
+{{- end }}
 
 {{- $serviceAccountName := "neutron-rpc-server" }}
 {{ tuple $envAll "pod_dependency" $serviceAccountName | include "helm-toolkit.snippets.kubernetes_pod_rbac_serviceaccount" }}
@@ -49,6 +53,8 @@ spec:
 {{ dict "envAll" $envAll "podName" "neutron-rpc-server" "containerNames" (list "neutron-rpc-server" "init") | include "helm-toolkit.snippets.kubernetes_mandatory_access_control_annotation" | indent 8 }}
     spec:
 {{ dict "envAll" $envAll "application" "neutron_rpc_server" | include "helm-toolkit.snippets.kubernetes_pod_security_context" | indent 6 }}
+{{ tuple "neutron_rpc_server" . | include "helm-toolkit.snippets.kubernetes_pod_priority_class" | indent 6 }}
+{{ tuple "neutron_rpc_server" . | include "helm-toolkit.snippets.kubernetes_pod_runtime_class" | indent 6 }}
       serviceAccountName: {{ $serviceAccountName }}
       affinity:
 {{ tuple $envAll "neutron" "rpc_server" | include "helm-toolkit.snippets.kubernetes_pod_anti_affinity" | indent 8 }}
@@ -123,6 +129,9 @@ spec:
             - name: neutron-etc
               mountPath: /etc/neutron/neutron.conf
               subPath: neutron.conf
+              readOnly: true
+            - name: neutron-etc-snippets
+              mountPath: /etc/neutron/neutron.conf.d/
               readOnly: true
             - name: neutron-etc
               mountPath: /etc/neutron/neutron-api-uwsgi.ini
@@ -216,6 +225,12 @@ spec:
           secret:
             secretName: neutron-etc
             defaultMode: 0444
+{{- if $etcSources }}
+        - name: neutron-etc-snippets
+          projected:
+            sources:
+{{ toYaml $etcSources | indent 14 }}
+{{ end }}
         {{- if ( has "tungstenfabric" .Values.network.backend ) }}
         - name: neutron-plugin-shared
           emptyDir: {}

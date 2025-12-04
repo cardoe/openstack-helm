@@ -27,6 +27,10 @@ tcpSocket:
 
 {{- $mounts_nova_serialproxy := .Values.pod.mounts.nova_serialproxy.nova_serialproxy }}
 {{- $mounts_nova_serialproxy_init := .Values.pod.mounts.nova_serialproxy.init_serialproxy }}
+{{- $etcSources := .Values.pod.etcSources.nova_serialproxy }}
+{{- if eq .Values.manifests.secret_ks_etc true }}
+{{- $etcSources = append $etcSources (dict "secret" (dict "name" "nova-ks-etc")) }}
+{{- end }}
 
 {{- $serviceAccountName := "nova-serialproxy" }}
 {{ tuple $envAll "serialproxy" $serviceAccountName | include "helm-toolkit.snippets.kubernetes_pod_rbac_serviceaccount" }}
@@ -56,6 +60,8 @@ spec:
 {{ tuple "nova_serialproxy" . | include "helm-toolkit.snippets.custom_pod_annotations" | indent 8 }}
 {{ dict "envAll" $envAll "podName" "nova-serialproxy" "containerNames" (list "nova-serialproxy" "nova-serialproxy-init-assets" "nova-serialproxy-init" "init") | include "helm-toolkit.snippets.kubernetes_mandatory_access_control_annotation" | indent 8 }}
     spec:
+{{ tuple "nova_serialproxy" . | include "helm-toolkit.snippets.kubernetes_pod_priority_class" | indent 6 }}
+{{ tuple "nova_serialproxy" . | include "helm-toolkit.snippets.kubernetes_pod_runtime_class" | indent 6 }}
       serviceAccountName: {{ $serviceAccountName }}
 {{ dict "envAll" $envAll "application" "nova" | include "helm-toolkit.snippets.kubernetes_pod_security_context" | indent 6 }}
       affinity:
@@ -88,6 +94,9 @@ spec:
               mountPath: /etc/nova/nova.conf
               subPath: nova.conf
               readOnly: true
+            - name: nova-etc-snippets
+              mountPath: /etc/nova/nova.conf.d/
+              readOnly: true
             {{- if .Values.conf.nova.DEFAULT.log_config_append }}
             - name: nova-etc
               mountPath: {{ .Values.conf.nova.DEFAULT.log_config_append }}
@@ -119,6 +128,9 @@ spec:
               mountPath: /etc/nova/nova.conf
               subPath: nova.conf
               readOnly: true
+            - name: nova-etc-snippets
+              mountPath: /etc/nova/nova.conf.d/
+              readOnly: true
             - name: nova-etc
               mountPath: /etc/nova/logging.conf
               subPath: logging.conf
@@ -144,6 +156,12 @@ spec:
           secret:
             secretName: nova-etc
             defaultMode: 0444
+{{- if $etcSources }}
+        - name: nova-etc-snippets
+          projected:
+            sources:
+{{ toYaml $etcSources | indent 14 }}
+{{ end }}
         - name: pod-usr-share-serial
           emptyDir: {}
         - name: pod-shared

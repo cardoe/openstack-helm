@@ -18,7 +18,7 @@ exec:
   command:
     - python
     - -c
-    - "import requests; requests.get('http://127.0.0.1:{{ tuple "network" "service" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}')"
+    - "import requests; r = requests.get('http://127.0.0.1:{{ tuple "network" "service" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}'); r.raise_for_status()"
 initialDelaySeconds: 30
 {{- else }}
 httpGet:
@@ -33,13 +33,17 @@ exec:
   command:
     - python
     - -c
-    - "import requests; requests.get('http://127.0.0.1:{{ tuple "network" "service" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}')"
+    - "import requests; r = requests.get('http://127.0.0.1:{{ tuple "network" "service" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}'); r.raise_for_status()"
 initialDelaySeconds: 30
 {{- else }}
 httpGet:
   scheme: {{ tuple "network" "service" "api" . | include "helm-toolkit.endpoints.keystone_endpoint_scheme_lookup" | upper }}
   path: /
+  {{- if .Values.pod.probes.server.server.liveness.port }}
+  port: {{ .Values.pod.probes.server.server.liveness.port }}
+  {{ else }}
   port: {{ tuple "network" "service" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
+  {{- end}}
 {{- end }}
 {{- end }}
 
@@ -51,6 +55,10 @@ httpGet:
 
 {{- $mounts_neutron_server := .Values.pod.mounts.neutron_server.neutron_server }}
 {{- $mounts_neutron_server_init := .Values.pod.mounts.neutron_server.init_container }}
+{{- $etcSources := .Values.pod.etcSources.neutron_server }}
+{{- if .Values.manifests.secret_ks_etc }}
+{{- $etcSources = append $etcSources (dict "secret" (dict "name" "neutron-ks-etc")) }}
+{{- end }}
 
 {{- $serviceAccountName := "neutron-server" }}
 {{ tuple $envAll "pod_dependency" $serviceAccountName | include "helm-toolkit.snippets.kubernetes_pod_rbac_serviceaccount" }}
@@ -81,6 +89,8 @@ spec:
 {{ dict "envAll" $envAll "podName" "neutron-server" "containerNames" (list "neutron-server" "init" "nginx") | include "helm-toolkit.snippets.kubernetes_mandatory_access_control_annotation" | indent 8 }}
     spec:
 {{ dict "envAll" $envAll "application" "neutron_server" | include "helm-toolkit.snippets.kubernetes_pod_security_context" | indent 6 }}
+{{ tuple "neutron_server" . | include "helm-toolkit.snippets.kubernetes_pod_priority_class" | indent 6 }}
+{{ tuple "neutron_server" . | include "helm-toolkit.snippets.kubernetes_pod_runtime_class" | indent 6 }}
       serviceAccountName: {{ $serviceAccountName }}
       affinity:
 {{ tuple $envAll "neutron" "server" | include "helm-toolkit.snippets.kubernetes_pod_anti_affinity" | indent 8 }}
@@ -184,9 +194,11 @@ spec:
                 command:
                   - /tmp/neutron-server.sh
                   - stop
+{{- if not $envAll.Values.manifests.certificates }}
           ports:
             - name: q-api
               containerPort: {{ tuple "network" "service" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
+{{- end }}
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
@@ -201,6 +213,9 @@ spec:
             - name: neutron-etc
               mountPath: /etc/neutron/neutron.conf
               subPath: neutron.conf
+              readOnly: true
+            - name: neutron-etc-snippets
+              mountPath: /etc/neutron/neutron.conf.d/
               readOnly: true
             - name: neutron-etc
               mountPath: /etc/neutron/neutron-api-uwsgi.ini
@@ -271,6 +286,18 @@ spec:
               mountPath: /etc/neutron/policy.yaml
               subPath: policy.yaml
               readOnly: true
+            {{- if contains "vpnaas" .Values.conf.neutron.DEFAULT.service_plugins }}
+            - name: neutron-etc
+              mountPath: /etc/neutron/neutron_vpnaas.conf
+              subPath: neutron_vpnaas.conf
+              readOnly: true
+            {{- end }}
+            {{- if contains "ovn-vpnaas" .Values.conf.neutron.DEFAULT.service_plugins }}
+            - name: neutron-etc
+              mountPath: /etc/neutron/neutron_ovn_vpn_agent.ini
+              subPath: neutron_ovn_vpn_agent.ini
+              readOnly: true
+            {{- end }}
 {{- dict "enabled" .Values.manifests.certificates "name" .Values.endpoints.oslo_db.auth.admin.secret.tls.internal "path" "/etc/mysql/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
 {{- dict "enabled" (or .Values.manifests.certificates .Values.tls.identity) "name" .Values.secrets.tls.network.server.internal "path" "/etc/neutron/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
 {{- dict "enabled" $envAll.Values.manifests.certificates "name" $envAll.Values.endpoints.oslo_messaging.auth.admin.secret.tls.internal "path" "/etc/rabbitmq/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
@@ -294,6 +321,12 @@ spec:
           secret:
             secretName: neutron-etc
             defaultMode: 0444
+{{- if $etcSources }}
+        - name: neutron-etc-snippets
+          projected:
+            sources:
+{{ toYaml $etcSources | indent 14 }}
+{{ end }}
         {{- if ( has "tungstenfabric" .Values.network.backend ) }}
         - name: neutron-plugin-shared
           emptyDir: {}

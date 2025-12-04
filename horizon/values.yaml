@@ -18,12 +18,12 @@
 ---
 images:
   tags:
-    db_init: quay.io/airshipit/heat:2024.1-ubuntu_jammy
-    horizon_db_sync: quay.io/airshipit/horizon:2024.1-ubuntu_jammy
-    db_drop: quay.io/airshipit/heat:2024.1-ubuntu_jammy
-    horizon: quay.io/airshipit/horizon:2024.1-ubuntu_jammy
+    db_init: quay.io/airshipit/heat:2025.1-ubuntu_noble
+    horizon_db_sync: quay.io/airshipit/horizon:2025.1-ubuntu_noble
+    db_drop: quay.io/airshipit/heat:2025.1-ubuntu_noble
+    horizon: quay.io/airshipit/horizon:2025.1-ubuntu_noble
     test: docker.io/openstackhelm/osh-selenium:latest-ubuntu_jammy
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_focal
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
     image_repo_sync: docker.io/docker:17.07.0
   pull_policy: "IfNotPresent"
   local_registry:
@@ -84,9 +84,6 @@ conf:
       logo_splash:
       favicon:
     apache: |
-      <IfVersion < 2.4>
-      Listen 0.0.0.0:{{ tuple "dashboard" "internal" "web" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
-      </IfVersion>
       LogFormat "%h %l %u %t \"%r\" %>s %b \"%{Referer}i\" \"%{User-Agent}i\"" combined
       LogFormat "%{X-Forwarded-For}i %l %u %t \"%r\" %>s %b \"%{Referer}i\" \"%{User-Agent}i\"" proxy
 
@@ -114,9 +111,7 @@ conf:
               SetHandler static
           </Location>
 
-          <IfVersion >= 2.4>
-            ErrorLogFormat "%{cu}t %M"
-          </IfVersion>
+          ErrorLogFormat "%{cu}t %M"
           ErrorLog /dev/stdout
           TransferLog /dev/stdout
 
@@ -213,6 +208,10 @@ conf:
         use_ssl: "False"
         endpoint_type: "internalURL"
         keystone_multidomain_support: "True"
+        keystone_multidomain_dropdown: "False"
+        keystone_domains:
+          Default: "Default"
+          example_domain: "example"
         keystone_default_domain: Default
         disable_password_reveal: "True"
         show_openrc_file: "True"
@@ -226,9 +225,12 @@ conf:
         pwd_validator_help_text: '_("Your password must be at least eight (8) characters in length and must include characters from at least two (2) of these groupings: alpha, numeric, and special characters.")'
         session_cookie_secure: "False"
         session_cookie_httponly: "False"
+        session_engine: 'django.contrib.sessions.backends.cache'
+        cache_backend: 'django.core.cache.backends.memcached.PyMemcacheCache'
         secure_proxy_ssl_header: false
         password_autocomplete: "False"
         disallow_iframe_embed: "False"
+        ssl_no_verify: "True"
         allowed_hosts:
           - '*'
         horizon_images_upload_mode: 'legacy'
@@ -337,6 +339,15 @@ conf:
         # Set this to True if running on multi-domain model. When this is enabled, it
         # will require user to enter the Domain name in addition to username for login.
         OPENSTACK_KEYSTONE_MULTIDOMAIN_SUPPORT = {{ .Values.conf.horizon.local_settings.config.keystone_multidomain_support }}
+        OPENSTACK_KEYSTONE_DOMAIN_DROPDOWN = {{ .Values.conf.horizon.local_settings.config.keystone_multidomain_dropdown }}
+        {{- $multiDomainDropdown := eq (lower .Values.conf.horizon.local_settings.config.keystone_multidomain_dropdown) "true" }}
+        {{- if $multiDomainDropdown }}
+        OPENSTACK_KEYSTONE_DOMAIN_CHOICES = (
+        {{- range $key, $label := .Values.conf.horizon.local_settings.config.keystone_domains }}
+            ('{{ $key }}', _('{{ $label }}')),
+        {{- end }}
+        )
+        {{- end }}
 
         # Overrides the default domain used when running on single-domain model
         # with Keystone V3. All entities will be created in the default domain.
@@ -401,7 +412,7 @@ conf:
 
         CACHES = {
             'default': {
-                'BACKEND': 'django.core.cache.backends.memcached.PyMemcacheCache',
+                'BACKEND': '{{ .Values.conf.horizon.local_settings.config.cache_backend }}',
                 'LOCATION': '{{ tuple "oslo_cache" "internal" "memcache" . | include "helm-toolkit.endpoints.host_and_port_endpoint_uri_lookup" }}',
             }
         }
@@ -426,7 +437,7 @@ conf:
                 'PORT': '{{ tuple "oslo_db" "internal" "mysql" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}'
             }
         }
-        SESSION_ENGINE = 'django.contrib.sessions.backends.cached_db'
+        SESSION_ENGINE = '{{ .Values.conf.horizon.local_settings.config.session_engine }}'
 
         # Send email to the console by default
         EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
@@ -486,7 +497,7 @@ conf:
         {{- end }}
 
         # Disable SSL certificate checks (useful for self-signed certificates):
-        #OPENSTACK_SSL_NO_VERIFY = True
+        OPENSTACK_SSL_NO_VERIFY = {{ .Values.conf.horizon.local_settings.config.ssl_no_verify }}
 
         {{- if .Values.manifests.certificates }}
         # The CA certificate to use to verify SSL connections
@@ -990,17 +1001,6 @@ conf:
         'cloudformation:ListStacks': 'rule:deny_stack_user'
         'cloudformation:UpdateStack': 'rule:deny_stack_user'
         'cloudformation:ValidateTemplate': 'rule:deny_stack_user'
-        'cloudwatch:DeleteAlarms': 'rule:deny_stack_user'
-        'cloudwatch:DescribeAlarmHistory': 'rule:deny_stack_user'
-        'cloudwatch:DescribeAlarms': 'rule:deny_stack_user'
-        'cloudwatch:DescribeAlarmsForMetric': 'rule:deny_stack_user'
-        'cloudwatch:DisableAlarmActions': 'rule:deny_stack_user'
-        'cloudwatch:EnableAlarmActions': 'rule:deny_stack_user'
-        'cloudwatch:GetMetricStatistics': 'rule:deny_stack_user'
-        'cloudwatch:ListMetrics': 'rule:deny_stack_user'
-        'cloudwatch:PutMetricAlarm': 'rule:deny_stack_user'
-        'cloudwatch:PutMetricData': ''
-        'cloudwatch:SetAlarmState': 'rule:deny_stack_user'
         context_is_admin: 'role:admin'
         deny_everybody: '!'
         deny_stack_user: 'not role:heat_stack_user'

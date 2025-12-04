@@ -53,6 +53,10 @@ exec:
 
 {{- $mounts_neutron_l3_agent := .Values.pod.mounts.neutron_l3_agent.neutron_l3_agent }}
 {{- $mounts_neutron_l3_agent_init := .Values.pod.mounts.neutron_l3_agent.init_container }}
+{{- $etcSources := .Values.pod.etcSources.neutron_l3_agent }}
+{{- if .Values.manifests.secret_ks_etc }}
+{{- $etcSources = append $etcSources (dict "secret" (dict "name" "neutron-ks-etc")) }}
+{{- end }}
 
 ---
 apiVersion: apps/v1
@@ -80,6 +84,8 @@ spec:
 {{ dict "envAll" $envAll "podName" "neutron-l3-agent-default" "containerNames" (list "neutron-l3-agent" "init"  "neutron-l3-agent-init") | include "helm-toolkit.snippets.kubernetes_mandatory_access_control_annotation" | indent 8 }}
     spec:
 {{ dict "envAll" $envAll "application" "neutron_l3_agent" | include "helm-toolkit.snippets.kubernetes_pod_security_context" | indent 6 }}
+{{ tuple "neutron_l3_agent" . | include "helm-toolkit.snippets.kubernetes_pod_priority_class" | indent 6 }}
+{{ tuple "neutron_l3_agent" . | include "helm-toolkit.snippets.kubernetes_pod_runtime_class" | indent 6 }}
       serviceAccountName: {{ $serviceAccountName }}
 {{ if $envAll.Values.pod.tolerations.neutron.enabled }}
 {{ tuple $envAll "neutron" | include "helm-toolkit.snippets.kubernetes_tolerations" | indent 6 }}
@@ -117,6 +123,9 @@ spec:
             - name: neutron-etc
               mountPath: /etc/neutron/neutron.conf
               subPath: neutron.conf
+              readOnly: true
+            - name: neutron-etc-snippets
+              mountPath: /etc/neutron/neutron.conf.d/
               readOnly: true
             - name: neutron-etc
               mountPath: /etc/neutron/metadata_agent.ini
@@ -187,6 +196,9 @@ spec:
             - name: neutron-etc
               mountPath: /etc/neutron/neutron.conf
               subPath: neutron.conf
+              readOnly: true
+            - name: neutron-etc-snippets
+              mountPath: /etc/neutron/neutron.conf.d/
               readOnly: true
             {{- if .Values.conf.neutron.DEFAULT.log_config_append }}
             - name: neutron-etc
@@ -260,6 +272,12 @@ spec:
           secret:
             secretName: {{ $configMapName }}
             defaultMode: 0444
+{{- if $etcSources }}
+        - name: neutron-etc-snippets
+          projected:
+            sources:
+{{ toYaml $etcSources | indent 14 }}
+{{ end }}
         - name: libmodules
           hostPath:
             path: /lib/modules

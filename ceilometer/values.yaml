@@ -19,9 +19,6 @@
 release_group: null
 
 labels:
-  api:
-    node_selector_key: openstack-control-plane
-    node_selector_value: enabled
   compute:
     node_selector_key: openstack-compute-node
     node_selector_value: enabled
@@ -30,9 +27,6 @@ labels:
     node_selector_value: enabled
   ipmi:
     node_selector_key: openstack-node
-    node_selector_value: enabled
-  collector:
-    node_selector_key: openstack-control-plane
     node_selector_value: enabled
   notification:
     node_selector_key: openstack-control-plane
@@ -46,21 +40,13 @@ labels:
 
 images:
   tags:
-    test: docker.io/xrally/xrally-openstack:2.0.0
-    db_init_mongodb: docker.io/mongo:3.4.9-jessie
-    db_init: docker.io/kolla/ubuntu-source-ceilometer-api:wallaby
-    ceilometer_db_sync: docker.io/kolla/ubuntu-source-ceilometer-api:wallaby
     rabbit_init: docker.io/rabbitmq:3.13-management
-    ks_user: quay.io/airshipit/heat:2024.1-ubuntu_jammy
-    ks_service: quay.io/airshipit/heat:2024.1-ubuntu_jammy
-    ks_endpoints: quay.io/airshipit/heat:2024.1-ubuntu_jammy
-    ceilometer_api: docker.io/kolla/ubuntu-source-ceilometer-api:wallaby
+    ks_user: quay.io/airshipit/heat:2025.1-ubuntu_noble
     ceilometer_central: docker.io/kolla/ubuntu-source-ceilometer-central:wallaby
-    ceilometer_collector: docker.io/kolla/ubuntu-source-ceilometer-collector:wallaby
     ceilometer_compute: docker.io/kolla/ubuntu-source-ceilometer-compute:wallaby
     ceilometer_ipmi: docker.io/kolla/ubuntu-source-ceilometer-base:wallaby
     ceilometer_notification: docker.io/kolla/ubuntu-source-ceilometer-notification:wallaby
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_focal
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
     image_repo_sync: docker.io/docker:17.07.0
   pull_policy: "IfNotPresent"
   local_registry:
@@ -69,126 +55,12 @@ images:
       - dep_check
       - image_repo_sync
 
-network:
-  api:
-    ingress:
-      public: true
-      classes:
-        namespace: "nginx"
-        cluster: "nginx-cluster"
-      annotations:
-        nginx.ingress.kubernetes.io/rewrite-target: /
-    port: 8777
-    node_port:
-      enabled: false
-      port: 38777
-
 ipmi_device: /dev/ipmi0
 
 conf:
-  security: |
-    #
-    # Disable access to the entire file system except for the directories that
-    # are explicitly allowed later.
-    #
-    # This currently breaks the configurations that come with some web application
-    # Debian packages.
-    #
-    #<Directory />
-    #   AllowOverride None
-    #   Require all denied
-    #</Directory>
-
-    # Changing the following options will not really affect the security of the
-    # server, but might make attacks slightly more difficult in some cases.
-
-    #
-    # ServerTokens
-    # This directive configures what you return as the Server HTTP response
-    # Header. The default is 'Full' which sends information about the OS-Type
-    # and compiled in modules.
-    # Set to one of:  Full | OS | Minimal | Minor | Major | Prod
-    # where Full conveys the most information, and Prod the least.
-    ServerTokens Prod
-
-    #
-    # Optionally add a line containing the server version and virtual host
-    # name to server-generated pages (internal error documents, FTP directory
-    # listings, mod_status and mod_info output etc., but not CGI generated
-    # documents or custom error documents).
-    # Set to "EMail" to also include a mailto: link to the ServerAdmin.
-    # Set to one of:  On | Off | EMail
-    ServerSignature Off
-
-    #
-    # Allow TRACE method
-    #
-    # Set to "extended" to also reflect the request body (only for testing and
-    # diagnostic purposes).
-    #
-    # Set to one of:  On | Off | extended
-    TraceEnable Off
-
-    #
-    # Forbid access to version control directories
-    #
-    # If you use version control systems in your document root, you should
-    # probably deny access to their directories. For example, for subversion:
-    #
-    #<DirectoryMatch "/\.svn">
-    #   Require all denied
-    #</DirectoryMatch>
-
-    #
-    # Setting this header will prevent MSIE from interpreting files as something
-    # else than declared by the content type in the HTTP headers.
-    # Requires mod_headers to be enabled.
-    #
-    #Header set X-Content-Type-Options: "nosniff"
-
-    #
-    # Setting this header will prevent other sites from embedding pages from this
-    # site as frames. This defends against clickjacking attacks.
-    # Requires mod_headers to be enabled.
-    #
-    #Header set X-Frame-Options: "sameorigin"
-  software:
-    apache2:
-      binary: apache2
-      start_parameters: -DFOREGROUND
-      site_dir: /etc/apache2/sites-enable
-      conf_dir: /etc/apache2/conf-enabled
-      mods_dir: /etc/apache2/mods-available
-      a2enmod: null
-      a2dismod: null
   ceilometer:
     DEFAULT:
-      event_dispatchers:
-        type: multistring
-        values:
-          - database
-      meter_dispatchers:
-        type: multistring
-        values:
-          - database
-          - gnocchi
-    api:
-      aodh_is_enabled: "False"
-    # NOTE(portdirect): the following option will turn off the ability to retrieve
-    # metrics via the ceilometer API:
-    # gnocchi_is_enabled: "True"
-    dispatcher_gnocchi:
-      filter_service_activity: False
-      archive_policy: low
-      resources_definition_file: /etc/ceilometer/gnocchi_resources.yaml
-    database:
-      max_retries: -1
-    dispatcher:
-      archive_policy: low
-      filter_project: service
-    keystone_authtoken:
-      auth_type: password
-      auth_version: v3
+      transport_url: null
     service_credentials:
       auth_type: password
       interface: internal
@@ -208,8 +80,6 @@ conf:
       topics:
         - notifications
         - profiler
-    oslo_policy:
-      policy_file: /etc/ceilometer/policy.yaml
     cache:
       enabled: true
       backend: dogpile.cache.memcached
@@ -802,7 +672,7 @@ conf:
       - name: event_sink
         publishers:
           - notifier://
-        transformers: null
+          - gnocchi://
     sources:
       - events:
           - '*'
@@ -810,9 +680,17 @@ conf:
         sinks:
           - event_sink
   gnocchi_resources:
+    archive_policy_default: ceilometer-low
+    archive_policies:
+      - name: ceilometer-low
+        aggregation_methods:
+          - mean
+        back_window: 0
+        definition:
+          - granularity: 5 minutes
+            timespan: 30 days
     resources:
-      - archive_policy: low
-        metrics:
+      - metrics:
           - identity.authenticate.success
           - identity.authenticate.pending
           - identity.authenticate.failure
@@ -857,13 +735,10 @@ conf:
           - memory
           - memory.usage
           - memory.resident
-          - memory.bandwidth.total
-          - memory.bandwidth.local
           - vcpus
           - cpu
           - cpu.delta
           - cpu_util
-          - cpu_l3_cache
           - disk.root.size
           - disk.ephemeral.size
           - disk.read.requests
@@ -1335,26 +1210,6 @@ conf:
           service_id: $.payload.service_id
           instance_type: $.payload.instance_type
           instance_type_id: $.payload.instance_type_id
-  paste:
-    'app:api-server':
-      paste.app_factory: 'ceilometer.api.app:app_factory'
-    'filter:authtoken':
-      paste.filter_factory: 'keystonemiddleware.auth_token:filter_factory'
-      oslo_config_project: 'ceilometer'
-    'filter:audit':
-      paste.filter_factory: 'keystonemiddleware.audit:filter_factory'
-      audit_map_file: '/etc/ceilometer/api_audit_map.conf'
-    'filter:cors':
-      oslo_config_project: 'ceilometer'
-      paste.filter_factory: 'oslo_middleware.cors:filter_factory'
-    'filter:http_proxy_to_wsgi':
-      oslo_config_project: 'ceilometer'
-      paste.filter_factory: 'oslo_middleware.http_proxy_to_wsgi:HTTPProxyToWSGI.factory'
-    'filter:request_id':
-      oslo_config_project: 'ceilometer'
-      paste.filter_factory: 'oslo_middleware:RequestId.factory'
-    'pipeline:main':
-      pipeline: cors http_proxy_to_wsgi request_id authtoken audit api-server
   polling:
     sources:
       - name: all_pollsters
@@ -1362,194 +1217,17 @@ conf:
         meters:
           - "*"
   pipeline:
-    sources:
-      - name: meter_source
-        meters:
-          - "*"
-        sinks:
-          - meter_sink
-      - name: cpu_source
-        meters:
-          - "cpu"
-        sinks:
-          - cpu_sink
-          - cpu_delta_sink
-      - name: disk_source
-        meters:
-          - "disk.read.bytes"
-          - "disk.read.requests"
-          - "disk.write.bytes"
-          - "disk.write.requests"
-          - "disk.device.read.bytes"
-          - "disk.device.read.requests"
-          - "disk.device.write.bytes"
-          - "disk.device.write.requests"
-        sinks:
-          - disk_sink
-      - name: network_source
-        meters:
-          - "network.incoming.bytes"
-          - "network.incoming.packets"
-          - "network.outgoing.bytes"
-          - "network.outgoing.packets"
-        sinks:
-          - network_sink
     sinks:
       - name: meter_sink
-        transformers:
         publishers:
           - notifier://
-      - name: cpu_sink
-        transformers:
-          - name: "rate_of_change"
-            parameters:
-              target:
-                name: "cpu_util"
-                unit: "%"
-                type: "gauge"
-                max: 100
-                scale: "100.0 / (10**9 * (resource_metadata.cpu_number or 1))"
-        publishers:
-          - notifier://
-      - name: cpu_delta_sink
-        transformers:
-          - name: "delta"
-            parameters:
-              target:
-                name: "cpu.delta"
-              growth_only: True
-        publishers:
-          - notifier://
-      - name: disk_sink
-        transformers:
-          - name: "rate_of_change"
-            parameters:
-              source:
-                map_from:
-                  name: "(disk\\.device|disk)\\.(read|write)\\.(bytes|requests)"
-                  unit: "(B|request)"
-              target:
-                map_to:
-                  name: "\\1.\\2.\\3.rate"
-                  unit: "\\1/s"
-                type: "gauge"
-        publishers:
-          - notifier://
-      - name: network_sink
-        transformers:
-          - name: "rate_of_change"
-            parameters:
-              source:
-                map_from:
-                  name: "network\\.(incoming|outgoing)\\.(bytes|packets)"
-                  unit: "(B|packet)"
-              target:
-                map_to:
-                  name: "network.\\1.\\2.rate"
-                  unit: "\\1/s"
-                type: "gauge"
-        publishers:
-          - notifier://
-  policy: {}
-  audit_api_map:
-    DEFAULT:
-      target_endpoint_type: None
-    path_keywords:
-      meters: meter_name
-      resources: resource_id
-      statistics: None
-      samples: sample_id
-    service_endpoints:
-      metering: service/metering
-  wsgi_ceilometer: |
-    Listen 0.0.0.0:{{ tuple "metering" "internal" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
-
-    LogFormat "%h %l %u %t \"%r\" %>s %b \"%{Referer}i\" \"%{User-Agent}i\"" combined
-
-    <VirtualHost *:{{ tuple "metering" "internal" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}>
-        LogLevel info
-        WSGIDaemonProcess ceilometer-api processes=2 threads=1 user=ceilometer group=ceilometer display-name=%{GROUP} python-path=/var/lib/kolla/venv/lib/python2.7/site-packages
-        WSGIProcessGroup ceilometer-api
-
-        WSGIScriptReloading On
-        WSGIScriptAlias / /var/lib/kolla/venv/lib/python2.7/site-packages/ceilometer/api/app.wsgi
-
-        WSGIApplicationGroup %{GLOBAL}
-
-        <Directory "/var/lib/kolla/venv/lib/python2.7/site-packages/ceilometer/api">
-            <IfVersion >= 2.4>
-                Require all granted
-            </IfVersion>
-            <IfVersion < 2.4>
-                Order allow,deny
-                Allow from all
-            </IfVersion>
-        </Directory>
-        ErrorLog /dev/stdout
-        CustomLog /dev/stdout combined
-    </VirtualHost>
-  rally_tests:
-    CeilometerStats.create_meter_and_get_stats:
-      - args:
-          user_id: user-id
-          resource_id: resource-id
-          counter_volume: 1
-          counter_unit: ''
-          counter_type: cumulative
-        runner:
-          type: constant
-          times: 1
-          concurrency: 1
-        sla:
-          failure_rate:
-            max: 0
-    CeilometerMeters.list_meters:
-      - runner:
-          type: constant
-          times: 1
-          concurrency: 1
-        sla:
-          failure_rate:
-            max: 0
-        context:
-          ceilometer:
-            counter_name: benchmark_meter
-            counter_type: gauge
-            counter_unit: "%"
-            counter_volume: 1
-            resources_per_tenant: 1
-            samples_per_resource: 1
-            timestamp_interval: 10
-            metadata_list:
-            - status: active
-              name: rally benchmark on
-              deleted: 'false'
-            - status: terminated
-              name: rally benchmark off
-              deleted: 'true'
-        args:
-          limit: 5
-          metadata_query:
-            status: terminated
-    CeilometerQueries.create_and_query_samples:
-      - args:
-          filter:
-            "=":
-              counter_unit: instance
-          orderby:
-          limit: 10
-          counter_name: cpu_util
-          counter_type: gauge
-          counter_unit: instance
-          counter_volume: 1
-          resource_id: resource_id
-        runner:
-          type: constant
-          times: 1
-          concurrency: 1
-          sla:
-            failure_rate:
-              max: 0
+          - gnocchi://
+    sources:
+      - meters:
+          - "*"
+        name: meter_source
+        sinks:
+          - meter_sink
 
 dependencies:
   dynamic:
@@ -1563,7 +1241,6 @@ dependencies:
   static:
     api:
       jobs:
-        - ceilometer-db-init-mongodb
         - ceilometer-db-sync
         - ceilometer-rabbit-init
         - ceilometer-ks-user
@@ -1571,15 +1248,10 @@ dependencies:
       services:
         - endpoint: internal
           service: identity
-        - endpoint: internal
-          service: oslo_db
-        - endpoint: internal
-          service: mongodb
         - endpoint: internal
           service: metric
     central:
       jobs:
-        - ceilometer-db-init-mongodb
         - ceilometer-db-sync
         - ceilometer-rabbit-init
         - ceilometer-ks-user
@@ -1589,13 +1261,10 @@ dependencies:
           service: identity
         - endpoint: internal
           service: oslo_db
-        - endpoint: internal
-          service: mongodb
         - endpoint: internal
           service: metric
     ipmi:
       jobs:
-        - ceilometer-db-init-mongodb
         - ceilometer-db-sync
         - ceilometer-rabbit-init
         - ceilometer-ks-user
@@ -1605,29 +1274,10 @@ dependencies:
           service: identity
         - endpoint: internal
           service: oslo_db
-        - endpoint: internal
-          service: mongodb
-        - endpoint: internal
-          service: metric
-    collector:
-      jobs:
-        - ceilometer-db-init-mongodb
-        - ceilometer-db-sync
-        - ceilometer-rabbit-init
-        - ceilometer-ks-user
-        - ceilometer-ks-endpoints
-      services:
-        - endpoint: internal
-          service: identity
-        - endpoint: internal
-          service: oslo_db
-        - endpoint: internal
-          service: mongodb
         - endpoint: internal
           service: metric
     compute:
       jobs:
-        - ceilometer-db-init-mongodb
         - ceilometer-db-sync
         - ceilometer-rabbit-init
         - ceilometer-ks-user
@@ -1638,36 +1288,11 @@ dependencies:
         - endpoint: internal
           service: oslo_db
         - endpoint: internal
-          service: mongodb
+          service: metric
+    db_sync:
+      services:
         - endpoint: internal
           service: metric
-    db_init:
-      services:
-        - endpoint: internal
-          service: oslo_db
-    db_init_mongodb:
-      services:
-        - endpoint: internal
-          service: mongodb
-    db_sync:
-      jobs:
-        - ceilometer-db-init
-        - ceilometer-db-init-mongodb
-      services:
-        - endpoint: internal
-          service: oslo_db
-        - endpoint: internal
-          service: mongodb
-    ks_endpoints:
-      jobs:
-        - ceilometer-ks-service
-      services:
-        - endpoint: internal
-          service: identity
-    ks_service:
-      services:
-        - endpoint: internal
-          service: identity
     ks_user:
       services:
         - endpoint: internal
@@ -1678,7 +1303,6 @@ dependencies:
         endpoint: internal
     notification:
       jobs:
-        - ceilometer-db-init-mongodb
         - ceilometer-db-sync
         - ceilometer-rabbit-init
         - ceilometer-ks-user
@@ -1688,8 +1312,6 @@ dependencies:
           service: identity
         - endpoint: internal
           service: oslo_db
-        - endpoint: internal
-          service: mongodb
         - endpoint: internal
           service: metric
     tests:
@@ -1711,12 +1333,6 @@ secrets:
     admin: ceilometer-keystone-admin
     ceilometer: ceilometer-keystone-user
     test: ceilometer-keystone-test
-  oslo_db:
-    admin: ceilometer-db-admin
-    ceilometer: ceilometer-db-user
-  mongodb:
-    admin: ceilometer-mongodb-admin
-    ceilometer: ceilometer-mongodb-user
   oslo_messaging:
     admin: ceilometer-rabbitmq-admin
     ceilometer: ceilometer-rabbitmq-user
@@ -1800,21 +1416,6 @@ endpoints:
       api:
         default: 80
         internal: 5000
-  metering:
-    name: ceilometer
-    hosts:
-      default: ceilometer-api
-      public: ceilometer
-    host_fqdn_override:
-      default: null
-    path:
-      default: null
-    scheme:
-      default: 'http'
-    port:
-      api:
-        default: 8777
-        public: 80
   metric:
     name: gnocchi
     hosts:
@@ -1845,40 +1446,6 @@ endpoints:
       api:
         default: 8042
         public: 80
-  oslo_db:
-    auth:
-      admin:
-        username: root
-        password: password
-      ceilometer:
-        username: ceilometer
-        password: password
-    hosts:
-      default: mariadb
-    host_fqdn_override:
-      default: null
-    path: /ceilometer
-    scheme: mysql+pymysql
-    port:
-      mysql:
-        default: 3306
-  mongodb:
-    auth:
-      admin:
-        username: root
-        password: password
-      ceilometer:
-        username: ceilometer
-        password: password
-    hosts:
-      default: mongodb
-    host_fqdn_override:
-      default: null
-    path: /ceilometer
-    scheme: mongodb
-    port:
-      mongodb:
-        default: 27017
   oslo_cache:
     auth:
       # NOTE(portdirect): this is used to define the value for keystone
@@ -1942,11 +1509,6 @@ pod:
       ceilometer_tests:
         volumeMounts:
         volumes:
-    ceilometer_api:
-      init_container: null
-      ceilometer_api:
-        volumeMounts:
-        volumes:
     ceilometer_compute:
       init_container: null
       ceilometer_compute:
@@ -1962,11 +1524,6 @@ pod:
       ceilometer_ipmi:
         volumeMounts:
         volumes:
-    ceilometer_collector:
-      init_container: null
-      ceilometer_collector:
-        volumeMounts:
-        volumes:
     ceilometer_notification:
       init_container: null
       ceilometer_notification:
@@ -1977,9 +1534,7 @@ pod:
         volumeMounts:
         volumes:
   replicas:
-    api: 1
     central: 1
-    collector: 1
     notification: 1
   lifecycle:
     upgrades:
@@ -1995,29 +1550,9 @@ pod:
           enabled: true
           min_ready_seconds: 0
           max_unavailable: 1
-    disruption_budget:
-      api:
-        min_available: 0
-    termination_grace_period:
-      api:
-        timeout: 600
   resources:
     enabled: true
-    api:
-      requests:
-        memory: "128Mi"
-        cpu: "100m"
-      limits:
-        memory: "1024Mi"
-        cpu: "2000m"
     compute:
-      requests:
-        memory: "128Mi"
-        cpu: "100m"
-      limits:
-        memory: "1024Mi"
-        cpu: "2000m"
-    collector:
       requests:
         memory: "128Mi"
         cpu: "100m"
@@ -2046,20 +1581,6 @@ pod:
         memory: "1024Mi"
         cpu: "2000m"
     jobs:
-      db_init:
-        requests:
-          memory: "128Mi"
-          cpu: "100m"
-        limits:
-          memory: "1024Mi"
-          cpu: "2000m"
-      db_init_mongodb:
-        requests:
-          memory: "128Mi"
-          cpu: "100m"
-        limits:
-          memory: "1024Mi"
-          cpu: "2000m"
       db_sync:
         requests:
           memory: "128Mi"
@@ -2068,20 +1589,6 @@ pod:
           memory: "1024Mi"
           cpu: "2000m"
       rabbit_init:
-        requests:
-          memory: "128Mi"
-          cpu: "100m"
-        limits:
-          memory: "1024Mi"
-          cpu: "2000m"
-      ks_endpoints:
-        requests:
-          memory: "128Mi"
-          cpu: "100m"
-        limits:
-          memory: "1024Mi"
-          cpu: "2000m"
-      ks_service:
         requests:
           memory: "128Mi"
           cpu: "100m"
@@ -2110,41 +1617,19 @@ pod:
           memory: "1024Mi"
           cpu: "2000m"
 
-network_policy:
-  ceilometer:
-    ingress:
-      - {}
-    egress:
-      - {}
-
 manifests:
   configmap_bin: true
   configmap_etc: true
-  deployment_api: true
   deployment_central: true
-  deployment_collector: true
   daemonset_compute: true
   daemonset_ipmi: false
   deployment_notification: true
-  ingress_api: true
   job_bootstrap: true
-  job_db_drop: false
-  job_db_init: true
-  job_db_init_mongodb: true
   job_db_sync: true
   job_image_repo_sync: true
-  job_ks_endpoints: true
-  job_ks_service: true
   job_ks_user: true
   job_rabbit_init: true
-  pdb_api: true
-  pod_rally_test: true
-  network_policy: false
-  secret_db: true
   secret_keystone: true
-  secret_mongodb: true
   secret_rabbitmq: true
   secret_registry: true
-  service_api: true
-  service_ingress_api: true
 ...

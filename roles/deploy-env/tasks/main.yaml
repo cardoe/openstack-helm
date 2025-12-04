@@ -15,6 +15,11 @@
   include_tasks:
     file: prerequisites.yaml
 
+- name: Overlay network
+  include_tasks:
+    file: overlay.yaml
+  when: overlay_network_setup
+
 - name: Configure /etc/hosts
   template:
     src: files/hosts
@@ -38,6 +43,12 @@
   include_tasks:
     file: k8s_control_plane.yaml
   when: inventory_hostname in (groups['k8s_control_plane'] | default([]))
+
+- name: Prepare kubeadm config
+  template:
+    src: files/etc_default_kubelet.j2
+    dest: /etc/default/kubelet
+  when: inventory_hostname in (groups['k8s_cluster'] | default([]))
 
 - name: Join workload nodes to cluster
   command: "{{ (groups['k8s_control_plane'] | map('extract', hostvars, ['join_command', 'stdout_lines', 0]))[0] }}"
@@ -80,9 +91,9 @@
     file: metallb.yaml
   when: metallb_setup
 
-- name: Include Openstack Metallb endpoint tasks
+- name: Include Ingress Metallb endpoint tasks
   include_tasks:
-    file: openstack_metallb_endpoint.yaml
+    file: ingress_metallb_endpoint.yaml
   when:
     - metallb_setup
     - inventory_hostname in (groups['primary'] | default([]))
@@ -102,5 +113,11 @@
     file: ingress.yaml
   when:
     - ingress_setup
+    - inventory_hostname in (groups['primary'] | default([]))
+
+- name: Include env inventory tasks
+  include_tasks:
+    file: env_inventory.yaml
+  when:
     - inventory_hostname in (groups['primary'] | default([]))
 ...

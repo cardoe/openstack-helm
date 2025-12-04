@@ -19,6 +19,8 @@ exec:
     - /tmp/health-probe.py
     - --config-file
     - /etc/nova/nova.conf
+    - --config-dir
+    - /etc/nova/nova.conf.d
     - --service-queue-name
     - compute
     - --liveness-probe
@@ -34,6 +36,8 @@ exec:
     - /tmp/health-probe.py
     - --config-file
     - /etc/nova/nova.conf
+    - --config-dir
+    - /etc/nova/nova.conf.d
     - --service-queue-name
     - compute
     {{- if .Values.pod.use_fqdn.compute }}
@@ -48,6 +52,8 @@ exec:
     - /tmp/health-probe.py
     - --config-file
     - /etc/nova/nova.conf
+    - --config-dir
+    - /etc/nova/nova.conf.d
     - --service-queue-name
     - compute
     - --liveness-probe
@@ -65,6 +71,10 @@ exec:
 
 {{- $mounts_nova_compute := .Values.pod.mounts.nova_compute.nova_compute }}
 {{- $mounts_nova_compute_init := .Values.pod.mounts.nova_compute.init_container }}
+{{- $etcSources := .Values.pod.etcSources.nova_compute }}
+{{- if eq .Values.manifests.secret_ks_etc true }}
+{{- $etcSources = append $etcSources (dict "secret" (dict "name" "nova-ks-etc")) }}
+{{- end }}
 
 ---
 apiVersion: apps/v1
@@ -90,6 +100,8 @@ spec:
 {{ tuple "nova_compute" . | include "helm-toolkit.snippets.custom_pod_annotations" | indent 8 }}
 {{ dict "envAll" $envAll "podName" "nova-compute-default" "containerNames" (list "nova-compute" "init" "nova-compute-init" "nova-compute-vnc-init") | include "helm-toolkit.snippets.kubernetes_mandatory_access_control_annotation" | indent 8 }}
     spec:
+{{ tuple "nova_compute" . | include "helm-toolkit.snippets.kubernetes_pod_priority_class" | indent 6 }}
+{{ tuple "nova_compute" . | include "helm-toolkit.snippets.kubernetes_pod_runtime_class" | indent 6 }}
       serviceAccountName: {{ $serviceAccountName }}
 {{ dict "envAll" $envAll "application" "nova" | include "helm-toolkit.snippets.kubernetes_pod_security_context" | indent 6 }}
       nodeSelector:
@@ -338,6 +350,9 @@ spec:
               mountPath: /etc/nova/nova.conf
               subPath: nova-compute.conf
               readOnly: true
+            - name: nova-etc-snippets
+              mountPath: /etc/nova/nova.conf.d/
+              readOnly: true
             {{- if .Values.conf.nova.DEFAULT.log_config_append }}
             - name: nova-etc
               mountPath: {{ .Values.conf.nova.DEFAULT.log_config_append }}
@@ -510,6 +525,12 @@ spec:
           secret:
             secretName: {{ $configMapName }}
             defaultMode: 0444
+{{- if $etcSources }}
+        - name: nova-etc-snippets
+          projected:
+            sources:
+{{ toYaml $etcSources | indent 14 }}
+{{ end }}
         {{- if .Values.network.ssh.enabled }}
         - name: nova-ssh
           secret:

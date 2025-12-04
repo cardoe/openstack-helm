@@ -17,10 +17,14 @@ limitations under the License.
 set -x
 exec neutron-dhcp-agent \
   --config-file /etc/neutron/neutron.conf \
+{{- if ( has "ovn" .Values.network.backend ) }}
+  --config-file /tmp/pod-shared/ovn.ini \
+{{- end }}
 {{- if and ( empty .Values.conf.neutron.DEFAULT.host ) ( .Values.pod.use_fqdn.neutron_agent ) }}
   --config-file /tmp/pod-shared/neutron-agent.ini \
 {{- end }}
 {{- if ( has "openvswitch" .Values.network.backend ) }}
   --config-file /etc/neutron/plugins/ml2/openvswitch_agent.ini \
 {{- end }}
-  --config-file /etc/neutron/dhcp_agent.ini
+  --config-file /etc/neutron/dhcp_agent.ini \
+  --config-dir /etc/neutron/neutron.conf.d

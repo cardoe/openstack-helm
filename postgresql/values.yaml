@@ -156,9 +156,9 @@ pod:
 images:
   tags:
     postgresql: "docker.io/library/postgres:14.5"
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_focal
-    image_repo_sync: docker.io/library/docker:17.07.0
-    ks_user: docker.io/openstackhelm/heat:2024.1-ubuntu_jammy
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
+    image_repo_sync: quay.io/airshipit/docker:27.5.0
+    ks_user: quay.io/airshipit/heat:2025.1-ubuntu_noble
     prometheus_postgresql_exporter: docker.io/wrouesnel/postgres_exporter:v0.4.6
     prometheus_postgresql_exporter_create_user: "docker.io/library/postgres:14.5"
     postgresql_backup: "quay.io/airshipit/porthole-postgresql-utility:latest-ubuntu_jammy"
@@ -181,6 +181,7 @@ storage:
     class_path: volume.beta.kubernetes.io/storage-class
   host:
     host_path: /data/openstack-helm/postgresql
+    archive_host_path: /data/openstack-helm/postgresql-archive
   mount:
     path: /var/lib/postgresql
     subpath: .
@@ -334,6 +335,8 @@ conf:
         lock_expire_after: 7200
         retry_after: 3600
         container_name: throttle-backups-manager
+      primary_user_class: postgresql
+      failover_user_class: postgresql_failover
 
   exporter:
     queries:

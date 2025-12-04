@@ -18,18 +18,18 @@
 images:
   tags:
     apache_proxy: docker.io/library/httpd:2.4
-    memory_init: docker.io/openstackhelm/heat:wallaby-ubuntu_focal
-    elasticsearch: docker.io/openstackhelm/elasticsearch-s3:latest-8_9_0
+    memory_init: quay.io/airshipit/heat:2025.1-ubuntu_noble
+    elasticsearch: docker.elastic.co/elasticsearch/elasticsearch:8.18.1
     curator: docker.io/untergeek/curator:8.0.10
-    ceph_key_placement: docker.io/openstackhelm/ceph-config-helper:ubuntu_jammy_19.2.1-1-20250207
-    s3_bucket: docker.io/openstackhelm/ceph-daemon:ubuntu_jammy_19.2.1-1-20250207
-    s3_user: docker.io/openstackhelm/ceph-config-helper:ubuntu_jammy_19.2.1-1-20250207
-    helm_tests: docker.io/openstackhelm/heat:wallaby-ubuntu_focal
-    prometheus_elasticsearch_exporter: quay.io/prometheuscommunity/elasticsearch-exporter:v1.7.0
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_focal
-    snapshot_repository: docker.io/openstackhelm/ceph-config-helper:ubuntu_jammy_19.2.1-1-20250207
-    elasticsearch_templates: docker.io/openstackhelm/elasticsearch-s3:latest-8_9_0
-    image_repo_sync: docker.io/library/docker:17.07.0
+    ceph_key_placement: docker.io/openstackhelm/ceph-config-helper:ubuntu_jammy_19.2.3-1-20250805
+    s3_bucket: docker.io/openstackhelm/ceph-daemon:ubuntu_jammy_19.2.3-1-20250805
+    s3_user: docker.io/openstackhelm/ceph-config-helper:ubuntu_jammy_19.2.3-1-20250805
+    helm_tests: quay.io/airshipit/heat:2025.1-ubuntu_noble
+    prometheus_elasticsearch_exporter: quay.io/prometheuscommunity/elasticsearch-exporter:v1.9.0
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
+    snapshot_repository: docker.io/openstackhelm/ceph-config-helper:ubuntu_jammy_19.2.3-1-20250805
+    elasticsearch_templates: docker.io/linuxserver/yq:latest
+    image_repo_sync: quay.io/airshipit/docker:27.5.0
   pull_policy: "IfNotPresent"
   local_registry:
     active: false
@@ -142,16 +142,6 @@ pod:
     master: null
     gateway: null
     secrets: null
-  mandatory_access_control:
-    type: apparmor
-    elasticsearch-master:
-      elasticsearch-master: runtime/default
-    elasticsearch-data:
-      elasticsearch-data: runtime/default
-    elasticsearch-client:
-      elasticsearch-client: runtime/default
-    elasticsearch-gateway:
-      elasticsearch-gateway: runtime/default
   security_context:
     exporter:
       pod:
@@ -411,7 +401,6 @@ network_policy:
 
 secrets:
   rgw:
-    admin: radosgw-s3-admin-creds
     elasticsearch: elasticsearch-s3-user-creds
   elasticsearch:
     user: elasticsearch-user-secrets
@@ -929,7 +918,7 @@ storage:
     #       # endpoint: Defaults to the ceph-rgw endpoint
     #       # protocol: Defaults to http
     #       path_style_access: true # Required for ceph-rgw S3 API
-    #     create_user: true # Attempt to create the user at the ceph_object_store endpoint, authenticating using the secret named at .Values.secrets.rgw.admin
+    #     create_user: true # Attempt to create the user at the ceph_object_store endpoint
     #   backup:
     #     auth:
     #       username: elasticsearch

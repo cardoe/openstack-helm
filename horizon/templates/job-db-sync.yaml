@@ -32,6 +32,7 @@ metadata:
     helm.sh/hook: post-install,post-upgrade
     helm.sh/hook-weight: "-4"
 {{- end }}
+{{ tuple $serviceAccountName $envAll | include "helm-toolkit.snippets.custom_job_annotations" | indent 4 }}
     {{ tuple $envAll | include "helm-toolkit.snippets.release_uuid" }}
 spec:
   template:
@@ -41,6 +42,8 @@ spec:
       annotations:
 {{ dict "envAll" $envAll "podName" "horizon-db-sync" "containerNames" (list "horizon-db-sync" "init" ) | include "helm-toolkit.snippets.kubernetes_mandatory_access_control_annotation" | indent 8 }}
     spec:
+{{ tuple "db_sync" . | include "helm-toolkit.snippets.kubernetes_pod_priority_class" | indent 6 }}
+{{ tuple "db_sync" . | include "helm-toolkit.snippets.kubernetes_pod_runtime_class" | indent 6 }}
       serviceAccountName: {{ $serviceAccountName }}
 {{ dict "envAll" $envAll "application" "db_sync" | include "helm-toolkit.snippets.kubernetes_pod_security_context" | indent 6 }}
       restartPolicy: OnFailure

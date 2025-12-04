@@ -258,7 +258,6 @@ def stop_mysqld():
     logger.info("Mysqld stopped: pid = {0}, "
                 "exit status = {1}".format(pid, status))
 
-
 def mysqld_write_cluster_conf(mode='run'):
     """Write out dynamic cluster config.
 
@@ -912,7 +911,6 @@ def run_mysqld(cluster='existing'):
         logger.info(
             "This is a fresh node joining the cluster for the 1st time, not attempting to set admin passwords or upgrading"
         )
-
     logger.info("Launching MariaDB")
     run_cmd_with_logging(mysqld_cmd, logger)
 
@@ -997,6 +995,8 @@ elif get_cluster_state() == 'live':
                     time.sleep(default_sleep)
                 set_configmap_annotation(
                     key='openstackhelm.openstack.org/cluster.state', value='live')
+                set_configmap_annotation(
+                    key='openstackhelm.openstack.org/reboot.node', value='')
                 run_mysqld()
 elif get_cluster_state() == 'reboot':
     reboot_node = get_configmap_value(

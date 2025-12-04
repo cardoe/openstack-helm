@@ -23,10 +23,6 @@ that are tested and proved to work.
      - Host OS
      - Image OS
      - Kubernetes version
-   * - 2023.2 (Bobcat)
-     - Ubuntu Jammy
-     - Ubuntu Jammy
-     - >=1.29,<=1.31
    * - 2024.1 (Caracal)
      - Ubuntu Jammy
      - Ubuntu Jammy
@@ -34,6 +30,14 @@ that are tested and proved to work.
    * - 2024.2 (Dalmatian)
      - Ubuntu Jammy
      - Ubuntu Jammy
+     - >=1.29,<=1.31
+   * - 2025.1 (Epoxy)
+     - Ubuntu Jammy
+     - Ubuntu Jammy
+     - >=1.29,<=1.31
+   * - 2025.1 (Epoxy)
+     - Ubuntu Noble
+     - Ubuntu Noble
      - >=1.29,<=1.31
 
 Communication
@@ -71,15 +75,14 @@ Other links
 Our documentation is available `here <https://docs.openstack.org/openstack-helm/latest/>`_.
 
 This project is under active development. We encourage anyone interested in
-OpenStack-Helm to review the `code changes <https://review.opendev.org/q/(project:openstack/openstack-helm+OR+project:openstack/openstack-helm-infra+OR+project:openstack/openstack-helm-images+OR+project:openstack/loci)+AND+-is:abandoned>`_
+OpenStack-Helm to review the `code changes <https://review.opendev.org/q/(project:openstack/openstack-helm+OR+project:openstack/openstack-helm-images+OR+project:openstack/loci)+AND+-is:abandoned>`_
 
 Our repositories:
 
 * OpenStack charts `openstack-helm <https://opendev.org/openstack/openstack-helm.git>`_
-* Infra charts `openstack-helm-infra <https://opendev.org/openstack/openstack-helm-infra.git>`_
 * OpenStack-Helm plugin `openstack-helm-plugin <https://opendev.org/openstack/openstack-helm-plugin.git>`_
-* Building images `openstack-helm-images <https://opendev.org/openstack/openstack-helm-images.git>`_
-* Building Openstack images framework `loci <https://opendev.org/openstack/loci.git>`_
+* Build non-OpenStack images `openstack-helm-images <https://opendev.org/openstack/openstack-helm-images.git>`_
+* Build Openstack images `loci <https://opendev.org/openstack/loci.git>`_
 
 We welcome contributions in any form: code review, code changes, usage feedback, updating documentation.
 
@@ -105,5 +108,5 @@ If you update multiple charts in a single commit use the following command:
 This will create a new release note file ``releasenotes/notes/common-<sha>.yaml``. In this case you
 can add multiple chart specific sections in this release note file.
 
-When building tarballы, we will use the ``reno`` features to combine release notes from all files and
+When building tarballs, we will use the ``reno`` features to combine release notes from all files and
 generate  ``<chart_name>/CHANGELOG.md`` files.

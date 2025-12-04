@@ -19,11 +19,11 @@
 images:
   pull_policy: IfNotPresent
   tags:
-    ceph_osd: 'docker.io/openstackhelm/ceph-daemon:ubuntu_jammy_19.2.1-1-20250207'
-    ceph_bootstrap: 'docker.io/openstackhelm/ceph-daemon:ubuntu_jammy_19.2.1-1-20250207'
-    ceph_config_helper: 'docker.io/openstackhelm/ceph-config-helper:ubuntu_jammy_19.2.1-1-20250207'
-    dep_check: 'quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_focal'
-    image_repo_sync: 'docker.io/library/docker:17.07.0'
+    ceph_osd: 'docker.io/openstackhelm/ceph-daemon:ubuntu_jammy_19.2.3-1-20250805'
+    ceph_bootstrap: 'docker.io/openstackhelm/ceph-daemon:ubuntu_jammy_19.2.3-1-20250805'
+    ceph_config_helper: 'docker.io/openstackhelm/ceph-config-helper:ubuntu_jammy_19.2.3-1-20250805'
+    dep_check: 'quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy'
+    image_repo_sync: 'quay.io/airshipit/docker:27.5.0'
   local_registry:
     active: false
     exclude:
@@ -219,6 +219,7 @@ conf:
       osd_mount_options_xfs: "rw,noatime,largeio,inode64,swalloc,logbufs=8,logbsize=256k,allocsize=4M"
       osd_journal_size: 10240
       osd_crush_update_on_start: false
+      bluestore_elastic_shared_blobs: false
     target:
       # This is just for helm tests to proceed the deployment if we have mentioned % of
       # osds are up and running.

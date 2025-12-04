@@ -32,6 +32,10 @@ exec:
 
 {{- $mounts_neutron_ovs_agent := .Values.pod.mounts.neutron_ovs_agent.neutron_ovs_agent }}
 {{- $mounts_neutron_ovs_agent_init := .Values.pod.mounts.neutron_ovs_agent.init_container }}
+{{- $etcSources := .Values.pod.etcSources.neutron_ovs_agent }}
+{{- if .Values.manifests.secret_ks_etc }}
+{{- $etcSources = append $etcSources (dict "secret" (dict "name" "neutron-ks-etc")) }}
+{{- end }}
 
 ---
 apiVersion: apps/v1
@@ -59,6 +63,8 @@ spec:
 {{ dict "envAll" $envAll "podName" "$configMapName" "containerNames" (list "neutron-ovs-agent" "init" "neutron-openvswitch-agent-kernel-modules" "neutron-ovs-agent-init") | include "helm-toolkit.snippets.kubernetes_mandatory_access_control_annotation" | indent 8 }}
     spec:
 {{ dict "envAll" $envAll "application" "neutron_ovs_agent" | include "helm-toolkit.snippets.kubernetes_pod_security_context" | indent 6 }}
+{{ tuple "neutron_ovs_agent" . | include "helm-toolkit.snippets.kubernetes_pod_priority_class" | indent 6 }}
+{{ tuple "neutron_ovs_agent" . | include "helm-toolkit.snippets.kubernetes_pod_runtime_class" | indent 6 }}
       serviceAccountName: {{ $serviceAccountName }}
       nodeSelector:
         {{ .Values.labels.ovs.node_selector_key }}: {{ .Values.labels.ovs.node_selector_value }}
@@ -140,6 +146,9 @@ spec:
             - name: neutron-etc
               mountPath: /etc/neutron/neutron.conf
               subPath: neutron.conf
+              readOnly: true
+            - name: neutron-etc-snippets
+              mountPath: /etc/neutron/neutron.conf.d/
               readOnly: true
             - name: neutron-etc
               mountPath: /etc/neutron/plugins/ml2/ml2_conf.ini
@@ -236,6 +245,9 @@ spec:
               mountPath: /etc/neutron/neutron.conf
               subPath: neutron.conf
               readOnly: true
+            - name: neutron-etc-snippets
+              mountPath: /etc/neutron/neutron.conf.d/
+              readOnly: true
             {{- if .Values.conf.neutron.DEFAULT.log_config_append }}
             - name: neutron-etc
               mountPath: {{ .Values.conf.neutron.DEFAULT.log_config_append }}
@@ -298,6 +310,12 @@ spec:
           secret:
             secretName: {{ $configMapName }}
             defaultMode: 0444
+{{- if $etcSources }}
+        - name: neutron-etc-snippets
+          projected:
+            sources:
+{{ toYaml $etcSources | indent 14 }}
+{{ end }}
         - name: run
           hostPath:
             path: /run

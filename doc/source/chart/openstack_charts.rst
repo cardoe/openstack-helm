@@ -6,10 +6,13 @@ OpenStack charts options
 
     aodh
     barbican
+    blazar
     ceilometer
     cinder
     cyborg
+    cloudkitty
     designate
+    freezer
     glance
     heat
     horizon
@@ -23,8 +26,10 @@ OpenStack charts options
     neutron
     nova
     octavia
-    openstack
     placement
     rally
+    skyline
     tacker
     tempest
+    watcher
+    zaqar

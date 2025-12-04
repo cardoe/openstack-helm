@@ -17,6 +17,10 @@ limitations under the License.
 
 {{- $serviceAccountName := "nova-cell-setup" }}
 {{ tuple $envAll "cell_setup" $serviceAccountName | include "helm-toolkit.snippets.kubernetes_pod_rbac_serviceaccount" }}
+{{- $etcSources := .Values.pod.etcSources.nova_cell_setup }}
+{{- if eq .Values.manifests.secret_ks_etc true }}
+{{- $etcSources = append $etcSources (dict "secret" (dict "name" "nova-ks-etc")) }}
+{{- end }}
 ---
 apiVersion: batch/v1
 kind: Job
@@ -26,6 +30,7 @@ metadata:
 {{ tuple $envAll "nova" "cell-setup" | include "helm-toolkit.snippets.kubernetes_metadata_labels" | indent 4 }}
   annotations:
     {{ tuple $envAll | include "helm-toolkit.snippets.release_uuid" }}
+{{ tuple "nova_cell_setup" $envAll | include "helm-toolkit.snippets.custom_job_annotations" | indent 4 }}
 spec:
   template:
     metadata:
@@ -102,6 +107,9 @@ spec:
               mountPath: /etc/nova/nova.conf
               subPath: nova.conf
               readOnly: true
+            - name: nova-etc-snippets
+              mountPath: /etc/nova/nova.conf.d/
+              readOnly: true
             {{- if .Values.conf.nova.DEFAULT.log_config_append }}
             - name: nova-etc
               mountPath: {{ .Values.conf.nova.DEFAULT.log_config_append }}
@@ -123,6 +131,12 @@ spec:
           secret:
             secretName: nova-etc
             defaultMode: 0444
+{{- if $etcSources }}
+        - name: nova-etc-snippets
+          projected:
+            sources:
+{{ toYaml $etcSources | indent 14 }}
+{{ end }}
         - name: nova-bin
           configMap:
             name: nova-bin

@@ -35,21 +35,21 @@ helm3_hook: true
 
 images:
   tags:
-    bootstrap: quay.io/airshipit/heat:2024.1-ubuntu_jammy
+    bootstrap: quay.io/airshipit/heat:2025.1-ubuntu_noble
     test: docker.io/xrally/xrally-openstack:2.0.0
-    db_init: quay.io/airshipit/heat:2024.1-ubuntu_jammy
-    keystone_db_sync: quay.io/airshipit/keystone:2024.1-ubuntu_jammy
-    db_drop: quay.io/airshipit/heat:2024.1-ubuntu_jammy
-    ks_user: quay.io/airshipit/heat:2024.1-ubuntu_jammy
+    db_init: quay.io/airshipit/heat:2025.1-ubuntu_noble
+    keystone_db_sync: quay.io/airshipit/keystone:2025.1-ubuntu_noble
+    db_drop: quay.io/airshipit/heat:2025.1-ubuntu_noble
+    ks_user: quay.io/airshipit/heat:2025.1-ubuntu_noble
     rabbit_init: docker.io/rabbitmq:3.13-management
-    keystone_fernet_setup: quay.io/airshipit/keystone:2024.1-ubuntu_jammy
-    keystone_fernet_rotate: quay.io/airshipit/keystone:2024.1-ubuntu_jammy
-    keystone_credential_setup: quay.io/airshipit/keystone:2024.1-ubuntu_jammy
-    keystone_credential_rotate: quay.io/airshipit/keystone:2024.1-ubuntu_jammy
-    keystone_credential_cleanup: quay.io/airshipit/heat:2024.1-ubuntu_jammy
-    keystone_api: quay.io/airshipit/keystone:2024.1-ubuntu_jammy
-    keystone_domain_manage: quay.io/airshipit/keystone:2024.1-ubuntu_jammy
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_focal
+    keystone_fernet_setup: quay.io/airshipit/keystone:2025.1-ubuntu_noble
+    keystone_fernet_rotate: quay.io/airshipit/keystone:2025.1-ubuntu_noble
+    keystone_credential_setup: quay.io/airshipit/keystone:2025.1-ubuntu_noble
+    keystone_credential_rotate: quay.io/airshipit/keystone:2025.1-ubuntu_noble
+    keystone_credential_cleanup: quay.io/airshipit/heat:2025.1-ubuntu_noble
+    keystone_api: quay.io/airshipit/keystone:2025.1-ubuntu_noble
+    keystone_domain_manage: quay.io/airshipit/keystone:2025.1-ubuntu_noble
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
     image_repo_sync: docker.io/docker:17.07.0
   pull_policy: "IfNotPresent"
   local_registry:
@@ -776,9 +776,10 @@ conf:
       MaxRequestsPerChild 128
       ThreadLimit         720
     </IfModule>
+  wsgi_script_name: wsgi.py
   wsgi_keystone: |
     {{- $portInt := tuple "identity" "service" "api" $ | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
-
+    {{- $wsgiScript := .Values.conf.wsgi_script_name }}
     Listen 0.0.0.0:{{ $portInt }}
 
     LogFormat "%h %l %u %t \"%r\" %>s %b \"%{Referer}i\" \"%{User-Agent}i\"" combined
@@ -791,12 +792,10 @@ conf:
     <VirtualHost *:{{ $portInt }}>
         WSGIDaemonProcess keystone-public processes=1 threads=1 user=keystone group=keystone display-name=%{GROUP}
         WSGIProcessGroup keystone-public
-        WSGIScriptAlias / /var/www/cgi-bin/keystone/keystone-wsgi-public
+        WSGIScriptAlias / /var/www/cgi-bin/keystone/{{ $wsgiScript }}
         WSGIApplicationGroup %{GLOBAL}
         WSGIPassAuthorization On
-        <IfVersion >= 2.4>
-          ErrorLogFormat "%{cu}t %M"
-        </IfVersion>
+        ErrorLogFormat "%{cu}t %M"
         ErrorLog /dev/stdout
 
         SetEnvIf X-Forwarded-For "^.*\..*\..*\..*" forwarded

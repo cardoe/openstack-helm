@@ -15,11 +15,11 @@ apiVersion: v2
 appVersion: v7.1.0
 description: OpenStack-Helm Elastic Metricbeat
 name: elastic-metricbeat
-version: 2024.2.0
+version: 2025.2.0
 home: https://www.elastic.co/products/beats/metricbeat
 sources:
   - https://github.com/elastic/beats/tree/master/metricbeat
-  - https://opendev.org/openstack/openstack-helm-infra
+  - https://opendev.org/openstack/openstack-helm
 maintainers:
   - name: OpenStack-Helm Authors
 dependencies:

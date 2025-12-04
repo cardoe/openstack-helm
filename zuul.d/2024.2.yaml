@@ -23,36 +23,33 @@
 - job:
     name: openstack-helm-compute-kit-2024-2-ubuntu_jammy
     parent: openstack-helm-compute-kit
-    nodeset: openstack-helm-1node-3nodes-ubuntu_jammy
+    nodeset: openstack-helm-3nodes-ubuntu_jammy
     timeout: 10800
     vars:
-      metallb_setup: true
       osh_params:
         openstack_release: "2024.2"
         container_distro_name: ubuntu
         container_distro_version: jammy
 
 - job:
-    name: openstack-helm-compute-kit-cilium-metallb-2024-2-ubuntu_jammy
+    name: openstack-helm-compute-kit-cilium-2024-2-ubuntu_jammy
     parent: openstack-helm-compute-kit
     nodeset: openstack-helm-1node-3nodes-ubuntu_jammy
     vars:
       calico_setup: false
       cilium_setup: true
-      metallb_setup: true
       osh_params:
         openstack_release: "2024.2"
         container_distro_name: ubuntu
         container_distro_version: jammy
 
 - job:
-    name: openstack-helm-compute-kit-flannel-metallb-2024-2-ubuntu_jammy
+    name: openstack-helm-compute-kit-flannel-2024-2-ubuntu_jammy
     parent: openstack-helm-compute-kit
     nodeset: openstack-helm-1node-3nodes-ubuntu_jammy
     vars:
       calico_setup: false
       flannel_setup: true
-      metallb_setup: true
       osh_params:
         openstack_release: "2024.2"
         container_distro_name: ubuntu
@@ -63,7 +60,6 @@
     parent: openstack-helm-compute-kit-helm-repo-public
     nodeset: openstack-helm-1node-3nodes-ubuntu_jammy
     vars:
-      metallb_setup: true
       osh_params:
         openstack_release: "2024.2"
         container_distro_name: ubuntu
@@ -81,21 +77,6 @@
         feature_gates: ovn
 
 - job:
-    name: openstack-helm-umbrella-2024-2-ubuntu_jammy
-    parent: openstack-helm-umbrella
-    nodeset: openstack-helm-3nodes-ubuntu_jammy
-    vars:
-      # FIXME: Newer versions of Helm include improved
-      # validation checks that might flag immutable field
-      # updates that were previously not strictly enforced
-      # or detected in older  versions.
-      helm_version: "v3.6.3"
-      osh_params:
-        openstack_release: "2024.2"
-        container_distro_name: ubuntu
-        container_distro_version: jammy
-
-- job:
     name: openstack-helm-tls-2024-2-ubuntu_jammy
     parent: openstack-helm-tls
     vars:
@@ -108,7 +89,7 @@
 - job:
     name: openstack-helm-tacker-2024-2-ubuntu_jammy
     parent: openstack-helm-tacker
-    nodeset: openstack-helm-1node-32GB-ubuntu_jammy
+    nodeset: openstack-helm-3nodes-ubuntu_jammy
     vars:
       osh_params:
         openstack_release: "2024.2"

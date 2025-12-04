@@ -28,9 +28,9 @@ images:
   tags:
     libvirt: docker.io/openstackhelm/libvirt:latest-ubuntu_focal
     libvirt_exporter: vexxhost/libvirtd-exporter:latest
-    ceph_config_helper: 'docker.io/openstackhelm/ceph-config-helper:ubuntu_jammy_19.2.1-1-20250207'
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_focal
-    image_repo_sync: docker.io/library/docker:17.07.0
+    ceph_config_helper: 'docker.io/openstackhelm/ceph-config-helper:ubuntu_jammy_19.2.3-1-20250805'
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
+    image_repo_sync: quay.io/airshipit/docker:27.5.0
     kubectl: docker.io/bitnami/kubectl:latest
   pull_policy: "IfNotPresent"
   local_registry:
@@ -246,10 +246,34 @@ conf:
       kubectl -n ${POD_NAMESPACE} get secret ${POD_NAME}-${TYPE} -o jsonpath='{.data.tls\.crt}' | base64 -d > /tmp/${TYPE}.crt
       kubectl -n ${POD_NAMESPACE} get secret ${POD_NAME}-${TYPE} -o jsonpath='{.data.tls\.key}' | base64 -d > /tmp/${TYPE}.key
       kubectl -n ${POD_NAMESPACE} get secret ${POD_NAME}-${TYPE} -o jsonpath='{.data.ca\.crt}' | base64 -d > /tmp/${TYPE}-ca.crt
+  hooks:
+    # Libvirt hook scripts, that are placed in /etc/libvirt/hooks
+    enabled: false
+    scripts:
+      # daemon:
+      # qemu:
+      # lxc:
+      # libxl:
+      # bhyve:
+      # network:
+
 pod:
   probes:
     libvirt:
       libvirt:
+        liveness:
+          enabled: true
+          params:
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            timeoutSeconds: 5
+        readiness:
+          enabled: true
+          params:
+            initialDelaySeconds: 15
+            periodSeconds: 60
+            timeoutSeconds: 5
+      libvirt_exporter:
         liveness:
           enabled: true
           params:
@@ -291,7 +315,10 @@ pod:
             drop:
               - ALL
   sidecars:
-    libvirt_exporter: false
+    libvirt_exporter:
+      enabled: false
+      args:
+        - "--libvirt.nova"
 
   affinity:
     anti:
@@ -403,6 +430,7 @@ manifests:
   network_policy: false
   role_cert_manager: false
   secret_registry: true
+  podmonitor: false
 
 secrets:
   oci_image_registry:

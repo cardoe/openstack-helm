@@ -45,6 +45,8 @@ spec:
         configmap-etc-hash: {{ tuple "configmap-etc.yaml" . | include "helm-toolkit.utils.hash" }}
 {{ tuple "magnum_api" . | include "helm-toolkit.snippets.custom_pod_annotations" | indent 8 }}
     spec:
+{{ tuple "magnum_api" . | include "helm-toolkit.snippets.kubernetes_pod_priority_class" | indent 6 }}
+{{ tuple "magnum_api" . | include "helm-toolkit.snippets.kubernetes_pod_runtime_class" | indent 6 }}
       serviceAccountName: {{ $serviceAccountName }}
       affinity:
 {{ tuple $envAll "magnum" "api" | include "helm-toolkit.snippets.kubernetes_pod_anti_affinity" | indent 8 }}
@@ -111,6 +113,12 @@ spec:
               mountPath: /etc/magnum/policy.yaml
               subPath: policy.yaml
               readOnly: true
+            {{- if .Values.conf.capi.enabled }}
+            - name: magnum-etc
+              mountPath: /etc/magnum/kubeconfig.conf
+              subPath: kubeconfig.conf
+              readOnly: true
+            {{- end }}
             - name: magnum-lock-path
               mountPath: {{ .Values.conf.magnum.oslo_concurrency.lock_path }}
 {{ if $mounts_magnum_api.volumeMounts }}{{ toYaml $mounts_magnum_api.volumeMounts | indent 12 }}{{ end }}

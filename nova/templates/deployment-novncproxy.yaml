@@ -27,6 +27,10 @@ tcpSocket:
 
 {{- $mounts_nova_novncproxy := .Values.pod.mounts.nova_novncproxy.nova_novncproxy }}
 {{- $mounts_nova_novncproxy_init := .Values.pod.mounts.nova_novncproxy.init_novncproxy }}
+{{- $etcSources := .Values.pod.etcSources.nova_novncproxy }}
+{{- if eq .Values.manifests.secret_ks_etc true }}
+{{- $etcSources = append $etcSources (dict "secret" (dict "name" "nova-ks-etc")) }}
+{{- end }}
 
 {{- $vencrypt_enabled := (contains "vencrypt" .Values.conf.nova.vnc.auth_schemes) }}
 
@@ -58,6 +62,8 @@ spec:
 {{ tuple "nova_novncproxy" . | include "helm-toolkit.snippets.custom_pod_annotations" | indent 8 }}
 {{ dict "envAll" $envAll "podName" "nova-novncproxy" "containerNames" (list "nova-novncproxy" "nova-novncproxy-init-assets" "nova-novncproxy-init" "init") | include "helm-toolkit.snippets.kubernetes_mandatory_access_control_annotation" | indent 8 }}
     spec:
+{{ tuple "nova_novncproxy" . | include "helm-toolkit.snippets.kubernetes_pod_priority_class" | indent 6 }}
+{{ tuple "nova_novncproxy" . | include "helm-toolkit.snippets.kubernetes_pod_runtime_class" | indent 6 }}
       serviceAccountName: {{ $serviceAccountName }}
 {{ dict "envAll" $envAll "application" "nova" | include "helm-toolkit.snippets.kubernetes_pod_security_context" | indent 6 }}
       affinity:
@@ -89,6 +95,9 @@ spec:
             - name: nova-etc
               mountPath: /etc/nova/nova.conf
               subPath: nova.conf
+              readOnly: true
+            - name: nova-etc-snippets
+              mountPath: /etc/nova/nova.conf.d
               readOnly: true
             {{- if .Values.conf.nova.DEFAULT.log_config_append }}
             - name: nova-etc
@@ -136,6 +145,9 @@ spec:
               mountPath: /etc/nova/nova.conf
               subPath: nova.conf
               readOnly: true
+            - name: nova-etc-snippets
+              mountPath: /etc/nova/nova.conf.d
+              readOnly: true
             - name: nova-etc
               mountPath: /etc/nova/logging.conf
               subPath: logging.conf
@@ -166,6 +178,12 @@ spec:
           secret:
             secretName: nova-etc
             defaultMode: 0444
+{{- if $etcSources }}
+        - name: nova-etc-snippets
+          projected:
+            sources:
+{{ toYaml $etcSources | indent 14 }}
+{{ end }}
         - name: pod-usr-share-novnc
           emptyDir: {}
         - name: pod-shared

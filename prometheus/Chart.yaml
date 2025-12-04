@@ -15,11 +15,11 @@ apiVersion: v2
 appVersion: v2.25.0
 description: OpenStack-Helm Prometheus
 name: prometheus
-version: 2024.2.0
+version: 2025.2.0
 home: https://prometheus.io/
 sources:
   - https://github.com/prometheus/prometheus
-  - https://opendev.org/openstack/openstack-helm-infra
+  - https://opendev.org/openstack/openstack-helm
 maintainers:
   - name: OpenStack-Helm Authors
 dependencies:

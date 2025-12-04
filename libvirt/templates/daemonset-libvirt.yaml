@@ -20,6 +20,13 @@ exec:
     - /usr/bin/virsh connect
 {{- end }}
 
+{{- define "libvirtExporterProbeTemplate" }}
+httpGet:
+  path: /
+  port: metrics
+  scheme: HTTP
+{{- end }}
+
 {{- define "libvirt.daemonset" }}
 {{- $daemonset := index . 0 }}
 {{- $configMapName := index . 1 }}
@@ -294,26 +301,34 @@ spec:
               subPath: key
               readOnly: true
             {{- end }}
+            {{- if .Values.conf.hooks.enabled }}
+            {{- range $k, $v := .Values.conf.hooks.scripts }}
+            - name: libvirt-bin
+              mountPath: /etc/libvirt/hooks/{{ $k }}
+              subPath: {{ $k }}
+              readOnly: true
+            {{- end }}
+            {{- end }}
 {{ if $mounts_libvirt.volumeMounts }}{{ toYaml $mounts_libvirt.volumeMounts | indent 12 }}{{ end }}
-        {{- if .Values.pod.sidecars.libvirt_exporter }}
+        {{- if .Values.pod.sidecars.libvirt_exporter.enabled }}
         - name: libvirt-exporter
 {{ tuple $envAll "libvirt_exporter" | include "helm-toolkit.snippets.image" | indent 10 }}
 {{ tuple $envAll $envAll.Values.pod.resources.libvirt_exporter | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
 {{ dict "envAll" $envAll "application" "libvirt" "container" "libvirt_exporter" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
+          {{- with .Values.pod.sidecars.libvirt_exporter }}
+            {{- if and (hasKey . "args") (gt (len .args) 0) }}
           args:
-            - "--libvirt.nova"
+              {{- range .args }}
+            - {{ . | quote }}
+              {{- end }}
+            {{- end }}
+          {{- end }}
           ports:
             - name: metrics
               protocol: TCP
               containerPort: {{ tuple "libvirt_exporter" "direct" "metrics" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
-          livenessProbe:
-            httpGet:
-              path: /
-              port: metrics
-          readinessProbe:
-            httpGet:
-              path: /
-              port: metrics
+{{ dict "envAll" . "component" "libvirt" "container" "libvirt_exporter" "type" "readiness" "probeTemplate" (include "libvirtExporterProbeTemplate" . | fromYaml) | include "helm-toolkit.snippets.kubernetes_probe" | indent 10 }}
+{{ dict "envAll" . "component" "libvirt" "container" "libvirt_exporter" "type" "liveness" "probeTemplate" (include "libvirtExporterProbeTemplate" . | fromYaml) | include "helm-toolkit.snippets.kubernetes_probe" | indent 10 }}
           volumeMounts:
             - name: run
               mountPath: /run
