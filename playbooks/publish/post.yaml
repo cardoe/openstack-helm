@@ -15,11 +15,10 @@
 
 - hosts: all
   tasks:
-    - name: Create temporary directory for organized charts
-      tempfile:
-        state: directory
-        suffix: helm_repo
-      register: helm_repo_dir
+    - name: Install PyYAML for index manipulation
+      pip:
+        name: PyYAML
+      become: yes
 
     - name: Gather the chart artifacts from source
       find:
@@ -28,7 +27,54 @@
         patterns: "*.tar.gz,*.tgz"
       register: chart_files
 
-    - name: Organize charts into subdirectories by chart name
+    - name: Download current index
+      register: _get_url
+      failed_when: _get_url.status_code not in (200, 404)
+      get_url:
+        url: "https://tarballs.opendev.org/{{ zuul.project.name }}/index.yaml"
+        dest: "{{ zuul.project.src_dir }}/index.yaml"
+
+    - name: Create a new index
+      when: _get_url.status_code == 404
+      shell: helm repo index {{ zuul.project.src_dir }} --url https://tarballs.opendev.org/{{ zuul.project.name }}
+
+    - name: Merge into existing index
+      when: _get_url.status_code == 200
+      shell: helm repo index {{ zuul.project.src_dir }} --merge {{ zuul.project.src_dir }}/index.yaml --url https://tarballs.opendev.org/{{ zuul.project.name }}
+
+    - name: Update index.yaml URLs to use subdirectory structure
+      shell: |
+        set -e
+        cd "{{ zuul.project.src_dir }}"
+        # For each chart file, update the index.yaml to use subdirectory paths
+        # This Python script updates URLs in index.yaml to include chart-name subdirectories
+        python3 << 'PYTHON_SCRIPT'
+        import yaml
+        import re
+
+        # Read index.yaml
+        with open('index.yaml', 'r') as f:
+            index = yaml.safe_load(f)
+
+        # Update URLs to include subdirectory structure
+        for chart_name, versions in index.get('entries', {}).items():
+            for version in versions:
+                # Extract the filename from the current URL
+                current_url = version.get('urls', [''])[0]
+                filename = current_url.split('/')[-1]
+
+                # Create new URL with chart-name subdirectory
+                new_url = f"{chart_name}/{filename}"
+                version['urls'] = [new_url]
+
+        # Write updated index.yaml
+        with open('index.yaml', 'w') as f:
+            yaml.dump(index, f, default_flow_style=False, sort_keys=False)
+
+        print("Updated index.yaml with subdirectory paths")
+        PYTHON_SCRIPT
+
+    - name: Organize charts into subdirectories
       shell: |
         set -e
         FILENAME="{{ item.path | basename }}"
@@ -36,33 +82,17 @@
         # Example: nova-1.0.0+abc123.tgz -> nova
         CHART_NAME=$(echo "$FILENAME" | sed -E 's/^([a-z0-9-]+)-[0-9].*/\1/')
 
-        # Create chart-specific directory in temp helm repo
-        CHART_DIR="{{ helm_repo_dir.path }}/${CHART_NAME}"
-        mkdir -p "${CHART_DIR}"
+        # Create chart-specific directory
+        mkdir -p "{{ zuul.project.src_dir }}/${CHART_NAME}"
 
-        # Copy chart to its directory
-        cp "{{ item.path }}" "${CHART_DIR}/"
-        echo "Organized ${FILENAME} into ${CHART_NAME}/"
+        # Move chart to its directory
+        mv "{{ item.path }}" "{{ zuul.project.src_dir }}/${CHART_NAME}/"
+        echo "Moved ${FILENAME} to ${CHART_NAME}/"
       loop: "{{ chart_files.files }}"
-
-    - name: Download current index
-      register: _get_url
-      failed_when: _get_url.status_code not in (200, 404)
-      get_url:
-        url: "https://tarballs.opendev.org/{{ zuul.project.name }}/index.yaml"
-        dest: "{{ helm_repo_dir.path }}/index.yaml"
-
-    - name: Create a new index with directory structure
-      when: _get_url.status_code == 404
-      shell: helm repo index {{ helm_repo_dir.path }} --url https://tarballs.opendev.org/{{ zuul.project.name }}
-
-    - name: Merge into existing index with directory structure
-      when: _get_url.status_code == 200
-      shell: helm repo index {{ helm_repo_dir.path }} --merge {{ helm_repo_dir.path }}/index.yaml --url https://tarballs.opendev.org/{{ zuul.project.name }}
 
     - name: Display charts to be published
       debug:
-        msg: "Publishing {{ chart_files.matched }} chart(s): {{ chart_files.files | map(attribute='path') | map('basename') | list | join(', ') }}"
+        msg: "Publishing {{ chart_files.matched }} chart(s) in subdirectory structure: {{ chart_files.files | map(attribute='path') | map('basename') | list | join(', ') }}"
 
     - name: Ensure artifact directory exists
       file:
@@ -70,16 +100,29 @@
         state: directory
       delegate_to: localhost
 
-    - name: Copy organized chart repository to artifacts
+    - name: Copy index.yaml to artifacts
       synchronize:
         mode: pull
-        src: "{{ helm_repo_dir.path }}/"
+        src: "{{ zuul.project.src_dir }}/index.yaml"
         dest: "{{ zuul.executor.work_root }}/artifacts/"
         verify_host: true
         owner: no
         group: no
-        recursive: yes
-        delete: no
+
+    - name: Copy chart subdirectories to artifacts
+      shell: |
+        set -e
+        FILENAME="{{ item.path | basename }}"
+        CHART_NAME=$(echo "$FILENAME" | sed -E 's/^([a-z0-9-]+)-[0-9].*/\1/')
+
+        # Ensure chart directory exists in artifacts
+        mkdir -p "{{ zuul.executor.work_root }}/artifacts/${CHART_NAME}"
+
+        # Copy the chart to artifacts
+        cp -v "{{ zuul.project.src_dir }}/${CHART_NAME}/${FILENAME}" \
+              "{{ zuul.executor.work_root }}/artifacts/${CHART_NAME}/"
+      loop: "{{ chart_files.files }}"
+      delegate_to: localhost
 
     - name: Display published repository structure
       debug:

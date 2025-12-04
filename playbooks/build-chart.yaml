@@ -17,6 +17,8 @@
     - ensure-pip
     - name: ensure-helm
       helm_version: "3.16.4"
+    - name: ensure-chart-testing
+      chart_testing_version: "3.11.0"
 
   tasks:
     - name: Install reno
@@ -24,17 +26,6 @@
         name: reno>=4.1.0
         extra_args: "--ignore-installed"
       become: yes
-
-    - name: Install chart-testing
-      shell: |
-        set -e
-        CT_VERSION="3.11.0"
-        CT_URL="https://github.com/helm/chart-testing/releases/download/v${CT_VERSION}/chart-testing_${CT_VERSION}_linux_amd64.tar.gz"
-        curl -sSL "${CT_URL}" | tar xz -C /tmp
-        sudo mv /tmp/ct /usr/local/bin/ct
-        ct version
-      args:
-        creates: /usr/local/bin/ct
 
     - name: Detect changed charts using chart-testing
       shell: |
