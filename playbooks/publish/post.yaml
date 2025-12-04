@@ -15,20 +15,54 @@
 
 - hosts: all
   tasks:
+    - name: Create temporary directory for organized charts
+      tempfile:
+        state: directory
+        suffix: helm_repo
+      register: helm_repo_dir
+
+    - name: Gather the chart artifacts from source
+      find:
+        file_type: file
+        paths: "{{ zuul.project.src_dir }}"
+        patterns: "*.tar.gz,*.tgz"
+      register: chart_files
+
+    - name: Organize charts into subdirectories by chart name
+      shell: |
+        set -e
+        FILENAME="{{ item.path | basename }}"
+        # Extract chart name (everything before the first version number)
+        # Example: nova-1.0.0+abc123.tgz -> nova
+        CHART_NAME=$(echo "$FILENAME" | sed -E 's/^([a-z0-9-]+)-[0-9].*/\1/')
+
+        # Create chart-specific directory in temp helm repo
+        CHART_DIR="{{ helm_repo_dir.path }}/${CHART_NAME}"
+        mkdir -p "${CHART_DIR}"
+
+        # Copy chart to its directory
+        cp "{{ item.path }}" "${CHART_DIR}/"
+        echo "Organized ${FILENAME} into ${CHART_NAME}/"
+      loop: "{{ chart_files.files }}"
+
     - name: Download current index
       register: _get_url
       failed_when: _get_url.status_code not in (200, 404)
       get_url:
         url: "https://tarballs.opendev.org/{{ zuul.project.name }}/index.yaml"
-        dest: "{{ zuul.project.src_dir }}/index.yaml"
+        dest: "{{ helm_repo_dir.path }}/index.yaml"
 
-    - name: Create a new index
+    - name: Create a new index with directory structure
       when: _get_url.status_code == 404
-      shell: helm repo index {{ zuul.project.src_dir }} --url https://tarballs.opendev.org/{{ zuul.project.name }}
+      shell: helm repo index {{ helm_repo_dir.path }} --url https://tarballs.opendev.org/{{ zuul.project.name }}
 
-    - name: Merge into existing index
+    - name: Merge into existing index with directory structure
       when: _get_url.status_code == 200
-      shell: helm repo index {{ zuul.project.src_dir }} --merge {{ zuul.project.src_dir }}/index.yaml --url https://tarballs.opendev.org/{{ zuul.project.name }}
+      shell: helm repo index {{ helm_repo_dir.path }} --merge {{ helm_repo_dir.path }}/index.yaml --url https://tarballs.opendev.org/{{ zuul.project.name }}
+
+    - name: Display charts to be published
+      debug:
+        msg: "Publishing {{ chart_files.matched }} chart(s): {{ chart_files.files | map(attribute='path') | map('basename') | list | join(', ') }}"
 
     - name: Ensure artifact directory exists
       file:
@@ -36,24 +70,21 @@
         state: directory
       delegate_to: localhost
 
-    - name: Gather the artifacts
-      find:
-        file_type: file
-        paths: "{{ zuul.project.src_dir }}"
-        patterns: "*.tar.gz,*.tgz,index.yaml"
-      register: result
-
-    - name: Display charts to be published
-      debug:
-        msg: "Publishing {{ result.matched }} artifact(s): {{ result.files | map(attribute='path') | map('basename') | list | join(', ') }}"
-
-    - name: Update Helm repository
+    - name: Copy organized chart repository to artifacts
       synchronize:
         mode: pull
-        src: "{{ item.path }}"
+        src: "{{ helm_repo_dir.path }}/"
         dest: "{{ zuul.executor.work_root }}/artifacts/"
         verify_host: true
         owner: no
         group: no
-      with_items: "{{ result.files }}"
+        recursive: yes
+        delete: no
+
+    - name: Display published repository structure
+      debug:
+        msg: |
+          Charts published to https://tarballs.opendev.org/{{ zuul.project.name }}
+          Structure: <chart-name>/<chart-name>-<version>.tgz
+          Index: https://tarballs.opendev.org/{{ zuul.project.name }}/index.yaml
 ...

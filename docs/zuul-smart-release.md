@@ -37,10 +37,54 @@ The `playbooks/build-chart.yaml` playbook:
 ### 4. Publishing
 
 The `playbooks/publish/post.yaml` playbook:
-1. Downloads the current Helm repository index from tarballs.opendev.org
-2. Merges the newly built charts into the existing index
-3. Only publishes the changed chart packages (*.tgz files)
-4. Updates the repository index with the new chart versions
+1. Organizes built charts into subdirectories by chart name (e.g., `nova/nova-1.0.0.tgz`)
+2. Downloads the current Helm repository index from tarballs.opendev.org
+3. Generates a new index that references charts in their subdirectories
+4. Merges the newly built charts into the existing index
+5. Publishes the organized chart structure to the repository
+6. Updates the repository index with the new chart versions and paths
+
+## Repository Structure
+
+Charts are organized in the Helm repository using a directory-per-chart structure:
+
+```
+https://tarballs.opendev.org/openstack/openstack-helm/
+├── index.yaml                    # Helm repository index
+├── nova/
+│   ├── nova-2025.2.0+abc123.tgz
+│   ├── nova-2025.2.1+def456.tgz
+│   └── ...
+├── neutron/
+│   ├── neutron-2025.2.0+abc123.tgz
+│   └── ...
+├── keystone/
+│   └── ...
+└── ...
+```
+
+### Using the Repository
+
+Add the repository to Helm:
+
+```bash
+helm repo add openstack-helm https://tarballs.opendev.org/openstack/openstack-helm
+helm repo update
+```
+
+Install a chart:
+
+```bash
+helm install my-nova openstack-helm/nova
+```
+
+### Benefits of Directory Structure
+
+1. **Better Organization**: Each chart has its own directory, making it easier to browse
+2. **Cleaner Listings**: Viewing the repository root doesn't show all versions of all charts
+3. **Selective Cleanup**: Can implement per-chart retention policies
+4. **Easier Debugging**: Can quickly see all versions of a specific chart
+5. **Industry Standard**: Follows common practice in Helm chart repositories
 
 ## Benefits
 
@@ -48,6 +92,7 @@ The `playbooks/publish/post.yaml` playbook:
 2. **Cleaner Version History**: Charts only get new versions when they actually change
 3. **Reduced Storage**: Fewer unnecessary chart versions are published
 4. **Better Traceability**: Users can see exactly which charts were updated in each release
+5. **Organized Repository**: Charts are structured in subdirectories for easy navigation
 
 ## Example
 
