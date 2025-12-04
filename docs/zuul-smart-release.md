@@ -36,13 +36,22 @@ The `playbooks/build-chart.yaml` playbook:
 
 ### 4. Publishing
 
-The `playbooks/publish/post.yaml` playbook:
-1. Organizes built charts into subdirectories by chart name (e.g., `nova/nova-1.0.0.tgz`)
-2. Downloads the current Helm repository index from tarballs.opendev.org
-3. Generates a new index that references charts in their subdirectories
-4. Merges the newly built charts into the existing index
-5. Publishes the organized chart structure to the repository
-6. Updates the repository index with the new chart versions and paths
+The `playbooks/publish/post.yaml` playbook implements a multi-step process to create a subdirectory-organized Helm repository:
+
+1. **Build Helm Index**: Runs `helm repo index` with charts in their current location (root)
+   - Downloads existing index from tarballs.opendev.org
+   - Merges new charts into existing index using standard Helm tooling
+
+2. **Update Index URLs**: Uses Python script to modify index.yaml
+   - Changes URLs from `nova-1.0.0.tgz` to `nova/nova-1.0.0.tgz`
+   - Preserves all chart metadata and version information
+
+3. **Organize Charts**: Moves charts into subdirectories by chart name
+   - Example: `nova-1.0.0.tgz` → `nova/nova-1.0.0.tgz`
+
+4. **Publish**: Copies organized structure and updated index to artifacts
+
+This approach works around the limitation that `helm repo index` does not recursively search subdirectories, while still achieving the desired directory structure.
 
 ## Repository Structure
 
