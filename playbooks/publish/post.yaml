@@ -43,6 +43,10 @@
         patterns: "*.tar.gz,*.tgz,index.yaml"
       register: result
 
+    - name: Display charts to be published
+      debug:
+        msg: "Publishing {{ result.matched }} artifact(s): {{ result.files | map(attribute='path') | map('basename') | list | join(', ') }}"
+
     - name: Update Helm repository
       synchronize:
         mode: pull

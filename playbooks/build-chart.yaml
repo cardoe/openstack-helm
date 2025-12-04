@@ -25,8 +25,50 @@
         extra_args: "--ignore-installed"
       become: yes
 
-    - name: make all
+    - name: Install chart-testing
+      shell: |
+        set -e
+        CT_VERSION="3.11.0"
+        CT_URL="https://github.com/helm/chart-testing/releases/download/v${CT_VERSION}/chart-testing_${CT_VERSION}_linux_amd64.tar.gz"
+        curl -sSL "${CT_URL}" | tar xz -C /tmp
+        sudo mv /tmp/ct /usr/local/bin/ct
+        ct version
+      args:
+        creates: /usr/local/bin/ct
+
+    - name: Detect changed charts using chart-testing
+      shell: |
+        set -e
+        cd "{{ zuul.project.src_dir }}"
+        # In Zuul, compare against the branch we're merging into
+        if [ -n "${ZUUL_BRANCH:-}" ]; then
+          TARGET_BRANCH="${ZUUL_BRANCH}"
+        else
+          TARGET_BRANCH="master"
+        fi
+        # ct list-changed outputs changed chart directories
+        ct list-changed --target-branch "origin/${TARGET_BRANCH}" --chart-dirs=. || echo ""
+      register: changed_charts_output
+      changed_when: false
+
+    - name: Parse changed charts
+      set_fact:
+        changed_charts: "{{ changed_charts_output.stdout_lines | reject('match', '^>>>.*') | list }}"
+
+    - name: Display changed charts
+      debug:
+        msg: "Building {{ changed_charts | length }} chart(s): {{ changed_charts | join(', ') }}"
+
+    - name: Build changed charts
+      make:
+        chdir: "{{ zuul.project.src_dir }}"
+        target: "{{ item }}"
+      loop: "{{ changed_charts }}"
+      when: changed_charts | length > 0
+
+    - name: Build all charts if none detected
       make:
         chdir: "{{ zuul.project.src_dir }}"
         target: all
+      when: changed_charts | length == 0
 ...
