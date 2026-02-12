@@ -88,6 +88,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: nova-bin
               mountPath: /tmp/nova-console-proxy-init.sh
               subPath: nova-console-proxy-init.sh
@@ -129,6 +131,9 @@ spec:
 {{ dict "envAll" $envAll "application" "nova" "container" "nova_novncproxy" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
 {{ dict "envAll" $envAll "component" "novncproxy" "container" "default" "type" "liveness" "probeTemplate" (include "novaNovncproxyLivenessProbeTemplate" $envAll | fromYaml) | include "helm-toolkit.snippets.kubernetes_probe" | indent 10 }}
 {{ dict "envAll" $envAll "component" "novncproxy" "container" "default" "type" "readiness" "probeTemplate" (include "novaNovncproxyReadinessProbeTemplate" $envAll | fromYaml) | include "helm-toolkit.snippets.kubernetes_probe" | indent 10 }}
+          env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
           command:
             - /tmp/nova-console-proxy.sh
           ports:
@@ -169,6 +174,8 @@ spec:
 {{ if $mounts_nova_novncproxy.volumeMounts }}{{ toYaml $mounts_nova_novncproxy.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: nova-bin
           configMap:

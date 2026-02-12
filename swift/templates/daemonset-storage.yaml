@@ -110,6 +110,9 @@ spec:
 {{ tuple $envAll "swift_account" | include "helm-toolkit.snippets.image" | indent 10 }}
 {{ tuple $envAll $envAll.Values.pod.resources.storage | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
 {{ dict "envAll" $envAll "application" "swift" "container" "swift_account" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
+          env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
           command:
             - /bin/bash
             - -c
@@ -137,6 +140,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: swift-bin
               mountPath: /tmp/account-start.sh
               subPath: account-start.sh
@@ -160,6 +165,9 @@ spec:
 {{ tuple $envAll "swift_container" | include "helm-toolkit.snippets.image" | indent 10 }}
 {{ tuple $envAll $envAll.Values.pod.resources.storage | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
 {{ dict "envAll" $envAll "application" "swift" "container" "swift_container" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
+          env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
           command:
             - /bin/bash
             - -c
@@ -187,6 +195,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: swift-bin
               mountPath: /tmp/container-start.sh
               subPath: container-start.sh
@@ -210,6 +220,9 @@ spec:
 {{ tuple $envAll "swift_object" | include "helm-toolkit.snippets.image" | indent 10 }}
 {{ tuple $envAll $envAll.Values.pod.resources.storage | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
 {{ dict "envAll" $envAll "application" "swift" "container" "swift_object" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
+          env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
           command:
             - /bin/bash
             - -c
@@ -240,6 +253,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: swift-bin
               mountPath: /tmp/object-start.sh
               subPath: object-start.sh
@@ -265,6 +280,8 @@ spec:
 {{- if $mounts_swift_storage.volumeMounts }}{{ toYaml $mounts_swift_storage.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: swift-bin
           configMap:

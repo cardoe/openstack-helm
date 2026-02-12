@@ -73,6 +73,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: manila-bin
               mountPath: /tmp/manila-share-init.sh
               subPath: manila-share-init.sh
@@ -108,6 +110,8 @@ spec:
           command:
             - /tmp/manila-share.sh
           env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
 {{- if or .Values.manifests.certificates .Values.tls.identity }}
             - name: REQUESTS_CA_BUNDLE
               value: "/etc/manila/certs/ca.crt"
@@ -182,6 +186,8 @@ spec:
 {{ if $mounts_manila_share.volumeMounts }}{{ toYaml $mounts_manila_share.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: pod-shared
           emptyDir: {}

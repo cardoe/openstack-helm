@@ -78,6 +78,8 @@ spec:
             - /tmp/barbican.sh
             - start
           env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
 {{- if or .Values.manifests.certificates .Values.tls.identity }}
             - name: REQUESTS_CA_BUNDLE
               value: "/etc/barbican/certs/ca.crt"
@@ -94,6 +96,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: etcbarbican
               mountPath: /etc/barbican
             - name: barbican-etc
@@ -133,6 +137,8 @@ spec:
 {{ if $mounts_barbican_api.volumeMounts }}{{ toYaml $mounts_barbican_api.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: etcbarbican
           emptyDir: {}

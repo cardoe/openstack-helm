@@ -82,6 +82,8 @@ spec:
 {{ dict "envAll" $envAll "application" "placement" "container" "placement_api" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
 {{- if or .Values.manifests.certificates .Values.tls.identity }}
           env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
             - name: REQUESTS_CA_BUNDLE
               value: "/etc/placement/certs/ca.crt"
 {{- end }}
@@ -118,6 +120,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: wsgi-placement
               mountPath: /var/www/cgi-bin/placement
             - name: placement-bin
@@ -155,6 +159,8 @@ spec:
 {{ if $mounts_placement.volumeMounts }}{{ toYaml $mounts_placement.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: wsgi-placement
           emptyDir: {}

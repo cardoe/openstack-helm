@@ -72,6 +72,9 @@ spec:
 {{ tuple $envAll "keystone_api" | include "helm-toolkit.snippets.image" | indent 10 }}
 {{ tuple $envAll $envAll.Values.pod.resources.api | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
 {{ dict "envAll" $envAll "application" "keystone" "container" "keystone_api" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
+          env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
           command:
             - /tmp/keystone-api.sh
             - start
@@ -89,6 +92,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: etckeystone
               mountPath: /etc/keystone
             - name: logs-apache
@@ -162,6 +167,8 @@ spec:
 {{ if $mounts_keystone_api.volumeMounts }}{{ toYaml $mounts_keystone_api.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: etckeystone
           emptyDir: {}

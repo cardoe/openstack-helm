@@ -75,6 +75,8 @@ spec:
 {{ dict "envAll" $envAll "application" "heat" "container" "heat_engine" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
 {{- if or .Values.manifests.certificates .Values.tls.identity }}
           env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
             - name: REQUESTS_CA_BUNDLE
               value: "/etc/heat/certs/ca.crt"
 {{- end }}
@@ -90,6 +92,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: pod-etc-heat
               mountPath: /etc/heat
             - name: heat-bin
@@ -116,6 +120,8 @@ spec:
 {{ if $mounts_heat_engine.volumeMounts }}{{ toYaml $mounts_heat_engine.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: pod-etc-heat
           emptyDir: {}

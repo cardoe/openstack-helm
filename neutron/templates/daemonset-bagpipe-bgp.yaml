@@ -84,6 +84,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: neutron-bin
               mountPath: /tmp/neutron-bagpipe-bgp-init.sh
               subPath: neutron-bagpipe-bgp-init.sh
@@ -97,6 +99,9 @@ spec:
 {{ dict "envAll" $envAll "application" "neutron_bagpipe_bgp" "container" "neutron_bagpipe_bgp" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
 {{ dict "envAll" $envAll "component" "bagpipe_bgp" "container" "bagpipe_bgp" "type" "liveness" "probeTemplate" (include "bagpipeBgpLivenessProbeTemplate" $envAll | fromYaml) | include "helm-toolkit.snippets.kubernetes_probe" | indent 10 }}
 {{ dict "envAll" $envAll "component" "bagpipe_bgp" "container" "bagpipe_bgp" "type" "readiness" "probeTemplate" (include "bagpipeBgpReadinessProbeTemplate" $envAll | fromYaml) | include "helm-toolkit.snippets.kubernetes_probe" | indent 10 }}
+          env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
           command:
             - /tmp/neutron-bagpipe-bgp.sh
           volumeMounts:
@@ -149,6 +154,8 @@ spec:
 {{ if $mounts_neutron_bagpipe_bgp.volumeMounts }}{{ toYaml $mounts_neutron_bagpipe_bgp.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: pod-var-neutron
           emptyDir: {}

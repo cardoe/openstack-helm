@@ -99,6 +99,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: neutron-bin
               mountPath: /tmp/neutron-linuxbridge-agent-init.sh
               subPath: neutron-linuxbridge-agent-init.sh
@@ -154,6 +156,9 @@ spec:
 {{ tuple $envAll $envAll.Values.pod.resources.agent.lb | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
 {{ dict "envAll" $envAll "application" "neutron_lb_agent" "container" "neutron_lb_agent" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
 {{ dict "envAll" $envAll "component" "lb_agent" "container" "lb_agent" "type" "readiness" "probeTemplate" (include "lbAgentReadinessProbeTemplate" $envAll | fromYaml) | include "helm-toolkit.snippets.kubernetes_probe" | indent 10 }}
+          env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
           command:
             - /tmp/neutron-linuxbridge-agent.sh
           volumeMounts:
@@ -215,6 +220,8 @@ spec:
 {{ if $mounts_neutron_lb_agent.volumeMounts }}{{ toYaml $mounts_neutron_lb_agent.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: pod-var-neutron
           emptyDir: {}

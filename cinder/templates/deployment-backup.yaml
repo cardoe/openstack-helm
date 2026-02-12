@@ -80,6 +80,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: etcceph
               mountPath: /etc/ceph
             - name: cinder-bin
@@ -162,6 +164,9 @@ spec:
 {{ tuple $envAll "cinder_backup" | include "helm-toolkit.snippets.image" | indent 10 }}
 {{ tuple $envAll $envAll.Values.pod.resources.backup | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
 {{ dict "envAll" $envAll "application" "cinder_backup" "container" "cinder_backup" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
+          env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
           command:
             - /tmp/cinder-backup.sh
           terminationMessagePath: /var/log/termination-log
@@ -292,6 +297,8 @@ spec:
 {{ if $mounts_cinder_backup.volumeMounts }}{{ toYaml $mounts_cinder_backup.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: cinder-tmp
           emptyDir: {}

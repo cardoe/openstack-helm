@@ -86,6 +86,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: etcceph
               mountPath: /etc/ceph
             - name: cinder-bin
@@ -154,6 +156,8 @@ spec:
           command:
             - /tmp/cinder-volume.sh
           env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
 {{- if or .Values.manifests.certificates .Values.tls.identity }}
             - name: REQUESTS_CA_BUNDLE
               value: "/etc/cinder/certs/ca.crt"
@@ -296,6 +300,8 @@ spec:
         - name: pod-tmp
           emptyDir: {}
         - name: pod-var-cinder
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: cinder-bin
           configMap:

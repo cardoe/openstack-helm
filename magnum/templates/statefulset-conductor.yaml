@@ -69,6 +69,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: magnum-bin
               mountPath: /tmp/magnum-conductor-init.sh
               subPath: magnum-conductor-init.sh
@@ -81,6 +83,9 @@ spec:
 {{ tuple $envAll $envAll.Values.pod.resources.conductor | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
           securityContext:
             runAsUser: {{ .Values.pod.user.magnum.uid }}
+          env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
           command:
             - /tmp/magnum-conductor.sh
           volumeMounts:
@@ -121,6 +126,8 @@ spec:
 {{ if $mounts_magnum_conductor.volumeMounts }}{{ toYaml $mounts_magnum_conductor.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: pod-etc-magnum
           emptyDir: {}

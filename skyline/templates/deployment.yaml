@@ -94,11 +94,16 @@ spec:
         - name: skyline
 {{ tuple $envAll "skyline" | include "helm-toolkit.snippets.image" | indent 10 }}
 {{ dict "envAll" $envAll "application" "skyline" "container" "skyline" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
+          env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
           command:
             - /tmp/skyline-apiserver.sh
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: skyline-var-lib
               mountPath: /var/lib/skyline
             - name: skyline-etc
@@ -116,6 +121,8 @@ spec:
 {{ if $mounts_skyline.volumeMounts }}{{ toYaml $mounts_skyline.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: nginx-etc
           emptyDir: {}

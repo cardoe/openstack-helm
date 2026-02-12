@@ -72,6 +72,8 @@ spec:
             - /tmp/horizon.sh
             - start
           env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
           - name: MY_POD_IP
             valueFrom:
               fieldRef:
@@ -108,6 +110,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: static-horizon
               mountPath: /var/www/html/
             - name: horizon-bin
@@ -180,6 +184,8 @@ spec:
 {{ if $mounts_horizon.volumeMounts }}{{ toYaml $mounts_horizon.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: wsgi-horizon
           emptyDir: {}

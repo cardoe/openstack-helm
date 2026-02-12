@@ -56,6 +56,9 @@ spec:
         - name: tacker-conductor
           image: {{ .Values.images.tags.tacker_conductor }}
           imagePullPolicy: {{ .Values.images.pull_policy }}
+          env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
           command:
             - /bin/bash
             - -c

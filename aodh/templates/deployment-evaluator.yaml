@@ -63,6 +63,9 @@ spec:
 {{ tuple $envAll "aodh_evaluator" | include "helm-toolkit.snippets.image" | indent 10 }}
 {{ tuple $envAll $envAll.Values.pod.resources.evaluator | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
 {{ dict "envAll" $envAll "application" "aodh" "container" "aodh_evaluator" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
+          env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
           command:
             - /tmp/aodh-evaluator.sh
             - start
@@ -75,6 +78,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: pod-etc-aodh
               mountPath: /etc/aodh
             - name: aodh-etc
@@ -98,6 +103,8 @@ spec:
 {{ if $mounts_aodh_evaluator.volumeMounts }}{{ toYaml $mounts_aodh_evaluator.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: pod-etc-aodh
           emptyDir: {}

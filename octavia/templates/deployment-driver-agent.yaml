@@ -65,6 +65,9 @@ spec:
 {{ tuple $envAll "octavia_driver_agent" | include "helm-toolkit.snippets.image" | indent 10 }}
 {{ tuple $envAll $envAll.Values.pod.resources.driver_agent | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
 {{ dict "envAll" $envAll "application" "octavia_driver_agent" "container" "octavia_driver_agent" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
+          env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
           command:
             - /tmp/octavia-driver-agent.sh
             - start
@@ -75,6 +78,10 @@ spec:
                   - /tmp/octavia-driver-agent.sh
                   - stop
           volumeMounts:
+            - name: pod-tmp
+              mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: pod-etc-octavia
               mountPath: /etc/octavia
             - name: octavia-bin
@@ -97,6 +104,10 @@ spec:
               mountPath: /var/run/ovn
 {{ if $mounts_octavia_driver_agent.volumeMounts }}{{ toYaml $mounts_octavia_driver_agent.volumeMounts | indent 12 }}{{ end }}
       volumes:
+        - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
+          emptyDir: {}
         - name: pod-etc-octavia
           emptyDir: {}
         - name: run-openvswitch

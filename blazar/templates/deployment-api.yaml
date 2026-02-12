@@ -75,8 +75,10 @@ spec:
 {{ tuple $envAll "blazar_api" | include "helm-toolkit.snippets.image" | indent 10 }}
 {{ tuple $envAll $envAll.Values.pod.resources.api | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
 {{ dict "envAll" $envAll "application" "blazar" "container" "blazar_api" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
-{{- if or .Values.manifests.certificates .Values.tls.identity }}
           env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
+{{- if or .Values.manifests.certificates .Values.tls.identity }}
             - name: REQUESTS_CA_BUNDLE
               value: "/etc/blazar/certs/ca.crt"
 {{- end }}
@@ -97,6 +99,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: pod-etc-blazar
               mountPath: /etc/blazar
             - name: blazar-bin
@@ -130,6 +134,8 @@ spec:
 {{ if $mounts_blazar_api.volumeMounts }}{{ toYaml $mounts_blazar_api.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: pod-etc-blazar
           emptyDir: {}

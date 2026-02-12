@@ -56,6 +56,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: etcceph
               mountPath: /etc/ceph
             - name: gnocchi-bin
@@ -70,6 +72,9 @@ spec:
         - name: gnocchi-metricd
 {{ tuple $envAll "gnocchi_metricd" | include "helm-toolkit.snippets.image" | indent 10 }}
 {{ tuple $envAll $envAll.Values.pod.resources.metricd | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
+          env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
           command:
             - /tmp/gnocchi-metricd.sh
           volumeMounts:
@@ -102,6 +107,8 @@ spec:
 {{ if $mounts_gnocchi_metricd.volumeMounts }}{{ toYaml $mounts_gnocchi_metricd.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: pod-etc-gnocchi
           emptyDir: {}

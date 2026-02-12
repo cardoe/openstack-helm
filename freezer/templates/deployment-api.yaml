@@ -73,14 +73,16 @@ spec:
 {{ dict "envAll" $envAll "application" "freezer" "container" "freezer_api" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
 {{ dict "envAll" $envAll "component" "api" "container" "freezer_api" "type" "readiness" "probeTemplate" (include "probeTemplate" $envAll | fromYaml) | include "helm-toolkit.snippets.kubernetes_probe" | indent 10 }}
 {{ dict "envAll" $envAll "component" "api" "container" "freezer_api" "type" "liveness" "probeTemplate" (include "probeTemplate" $envAll | fromYaml) | include "helm-toolkit.snippets.kubernetes_probe" | indent 10 }}
-          command:
-            - /tmp/freezer-api.sh
-            - start
           env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
 {{- if or .Values.manifests.certificates .Values.tls.identity }}
             - name: REQUESTS_CA_BUNDLE
               value: "/etc/freezer/certs/ca.crt"
 {{- end }}
+          command:
+            - /tmp/freezer-api.sh
+            - start
           lifecycle:
             preStop:
               exec:
@@ -91,6 +93,10 @@ spec:
             - name: freezer-api
               containerPort: {{ tuple "backup" "internal" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
           volumeMounts:
+            - name: pod-tmp
+              mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: freezer-bin
               mountPath: /tmp/freezer-api.sh
               subPath: freezer-api.sh
@@ -115,6 +121,10 @@ spec:
 {{- dict "enabled" .Values.tls.oslo_db "name" .Values.endpoints.oslo_db.auth.admin.secret.tls.internal "path" "/etc/mysql/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
 {{- dict "enabled" .Values.tls.identity "name" .Values.secrets.tls.backup.api.internal "path" "/etc/freezer/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
       volumes:
+        - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
+          emptyDir: {}
         - name: freezer-bin
           configMap:
             name: freezer-bin

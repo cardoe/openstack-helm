@@ -73,6 +73,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: ironic-bin
               mountPath: /tmp/retreive-swift-config.sh
               subPath: retreive-swift-config.sh
@@ -84,6 +86,9 @@ spec:
         - name: ironic-api
 {{ tuple $envAll "ironic_api" | include "helm-toolkit.snippets.image" | indent 10 }}
 {{ tuple $envAll $envAll.Values.pod.resources.api | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
+          env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
           command:
             - /tmp/ironic-api.sh
             - start
@@ -126,6 +131,8 @@ spec:
 {{ if $mounts_ironic_api.volumeMounts }}{{ toYaml $mounts_ironic_api.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: ironic-bin
           configMap:

@@ -98,6 +98,8 @@ spec:
 {{ dict "envAll" $envAll "component" "conductor" "container" "default" "type" "liveness" "probeTemplate" (include "novaConductorLivenessProbeTemplate" $envAll | fromYaml) | include "helm-toolkit.snippets.kubernetes_probe" | indent 10 }}
 {{ dict "envAll" $envAll "component" "conductor" "container" "default" "type" "readiness" "probeTemplate" (include "novaConductorReadinessProbeTemplate" $envAll | fromYaml) | include "helm-toolkit.snippets.kubernetes_probe" | indent 10 }}
           env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
             - name: RPC_PROBE_TIMEOUT
               value: "{{ .Values.pod.probes.rpc_timeout }}"
             - name: RPC_PROBE_RETRIES
@@ -111,6 +113,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: nova-bin
               mountPath: /tmp/nova-conductor.sh
               subPath: nova-conductor.sh
@@ -142,6 +146,8 @@ spec:
 {{ if $mounts_nova_conductor.volumeMounts }}{{ toYaml $mounts_nova_conductor.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: nova-bin
           configMap:

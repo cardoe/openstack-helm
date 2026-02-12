@@ -81,11 +81,16 @@ spec:
 {{ tuple $envAll $envAll.Values.pod.resources.agent.bgp_dragent | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
 {{ dict "envAll" $envAll "application" "neutron_bgp_dragent" "container" "neutron_bgp_dragent" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
 {{ dict "envAll" $envAll "component" "bgp_dragent" "container" "bgp_dragent" "type" "liveness" "probeTemplate" (include "bgp_dragentLivenessProbeTemplate" $envAll | fromYaml) | include "helm-toolkit.snippets.kubernetes_probe" | indent 10 }}
+          env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
           command:
             - /tmp/neutron-bgp-dragent.sh
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: pod-var-neutron
               mountPath: {{ .Values.conf.neutron.DEFAULT.state_path }}
             - name: neutron-bin
@@ -142,6 +147,8 @@ spec:
 {{ if $mounts_neutron_bgp_dragent.volumeMounts }}{{ toYaml $mounts_neutron_bgp_dragent.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: pod-var-neutron
           emptyDir: {}

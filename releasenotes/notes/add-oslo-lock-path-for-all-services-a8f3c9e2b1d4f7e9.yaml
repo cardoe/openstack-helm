@@ -1,0 +1,25 @@
+---
+features:
+  - |
+    All OpenStack service deployments, statefulsets, and daemonsets now include
+    a dedicated writable emptyDir volume mounted at /var/lock and the
+    OSLO_LOCK_PATH environment variable set to this path. This ensures that
+    Oslo's file-based locking mechanisms work correctly across all OpenStack
+    services, preventing potential lock file conflicts and permission issues.
+
+    The following changes have been applied to all OpenStack service charts:
+
+    * Added oslo-lock-path emptyDir volume to all deployments/statefulsets/daemonsets
+    * Mounted the volume at /var/lock in all service containers
+    * Set OSLO_LOCK_PATH=/var/lock environment variable for all services
+
+    This change affects the following charts:
+    aodh, barbican, blazar, ceilometer, cinder, cloudkitty, cyborg, designate,
+    freezer, glance, gnocchi, heat, horizon, ironic, keystone, magnum, manila,
+    masakari, mistral, neutron, nova, octavia, placement, skyline, swift, tacker,
+    trove, watcher, and zaqar.
+
+    The dedicated lock path at the standard Linux location /var/lock ensures that
+    file locking operations in Oslo libraries function reliably in containerized
+    environments, particularly when multiple replicas or containers are running.
+...

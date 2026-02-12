@@ -66,6 +66,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: pod-shared
               mountPath: /tmp/pod-shared
             - name: masakari-bin
@@ -82,6 +84,8 @@ spec:
             - /tmp/masakari-host-monitor.sh
             - start
           env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
             - name: COMPUTE_NODE_NAME
               valueFrom:
                 fieldRef:
@@ -116,6 +120,8 @@ spec:
               mountPath: /dev/shm
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: pod-shared
           emptyDir: {}

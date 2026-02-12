@@ -58,6 +58,9 @@ spec:
 {{ tuple $envAll $envAll.Values.pod.resources.api | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
           securityContext:
             runAsUser: {{ .Values.pod.user.watcher.uid }}
+          env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
           command:
             - /tmp/watcher-api.sh
             - start
@@ -76,6 +79,10 @@ spec:
               path: /
               port: {{ tuple "infra-optim" "internal" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
           volumeMounts:
+            - name: pod-tmp
+              mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: pod-etc-watcher
               mountPath: /etc/watcher
             - name: watcher-bin
@@ -96,6 +103,10 @@ spec:
               readOnly: true
 {{ if $mounts_watcher_api.volumeMounts }}{{ toYaml $mounts_watcher_api.volumeMounts | indent 12 }}{{ end }}
       volumes:
+        - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
+          emptyDir: {}
         - name: pod-etc-watcher
           emptyDir: {}
         - name: watcher-bin

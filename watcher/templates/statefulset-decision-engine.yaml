@@ -55,9 +55,16 @@ spec:
 {{ tuple $envAll $envAll.Values.pod.resources.decision_engine | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
           securityContext:
             runAsUser: {{ .Values.pod.user.watcher.uid }}
+          env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
           command:
             - /tmp/watcher-decision-engine.sh
           volumeMounts:
+            - name: pod-tmp
+              mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: pod-etc-watcher
               mountPath: /etc/watcher
             - name: watcher-bin
@@ -74,6 +81,10 @@ spec:
               readOnly: true
 {{ if $mounts_watcher_decision_engine.volumeMounts }}{{ toYaml $mounts_watcher_decision_engine.volumeMounts | indent 12 }}{{ end }}
       volumes:
+        - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
+          emptyDir: {}
         - name: pod-etc-watcher
           emptyDir: {}
         - name: watcher-bin

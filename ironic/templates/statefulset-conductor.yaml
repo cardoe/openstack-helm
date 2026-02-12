@@ -74,6 +74,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: ironic-bin
               mountPath: /tmp/ironic-conductor-pxe-init.sh
               subPath: ironic-conductor-pxe-init.sh
@@ -191,6 +193,8 @@ spec:
           securityContext:
             privileged: true
           env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
             - name: PROVISIONER_INTERFACE
               value: {{ .Values.network.pxe.device }}
           command:
@@ -234,6 +238,8 @@ spec:
         {{- end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: pod-shared
           emptyDir: {}

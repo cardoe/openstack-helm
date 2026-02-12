@@ -107,6 +107,8 @@ spec:
 {{ tuple $envAll $envAll.Values.pod.resources.agent.l2gw | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
 {{ dict "envAll" $envAll "application" "neutron_l2gw_agent" "container" "neutron_l2gw_agent" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
           env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
             - name: RPC_PROBE_TIMEOUT
               value: "{{ .Values.pod.probes.rpc_timeout }}"
             - name: RPC_PROBE_RETRIES
@@ -118,6 +120,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: pod-var-neutron
               mountPath: {{ .Values.conf.neutron.DEFAULT.state_path }}
             - name: neutron-bin
@@ -149,6 +153,8 @@ spec:
 {{ if $mounts_neutron_l2gw_agent.volumeMounts }}{{ toYaml $mounts_neutron_l2gw_agent.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: pod-var-neutron
           emptyDir: {}

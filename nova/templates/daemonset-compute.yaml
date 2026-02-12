@@ -127,6 +127,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: nova-bin
               mountPath: /tmp/nova-compute-init.sh
               subPath: nova-compute-init.sh
@@ -309,6 +311,8 @@ spec:
 {{ tuple $envAll $envAll.Values.pod.resources.compute | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
 {{ dict "envAll" $envAll "application" "nova" "container" "nova_compute" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
           env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
           {{- if .Values.conf.ceph.enabled }}
             - name: CEPH_CINDER_USER
               value: "{{ .Values.conf.ceph.cinder.user }}"
@@ -516,6 +520,8 @@ spec:
         {{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: nova-bin
           configMap:

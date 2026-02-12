@@ -75,6 +75,9 @@ spec:
 {{ tuple $envAll "cloudkitty_api" | include "helm-toolkit.snippets.image" | indent 10 }}
 {{ tuple $envAll $envAll.Values.pod.resources.cloudkitty_api | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
 {{ dict "envAll" $envAll "application" "cloudkitty" "container" "cloudkitty_api" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
+          env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
           command:
             - /tmp/cloudkitty-api.sh
             - start
@@ -92,6 +95,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: cloudkitty-bin
               mountPath: /tmp/cloudkitty-api.sh
               subPath: cloudkitty-api.sh
@@ -118,6 +123,8 @@ spec:
 {{ if $mounts_cloudkitty_api.volumeMounts }}{{ toYaml $mounts_cloudkitty_api.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: etccloudkitty
           emptyDir: {}

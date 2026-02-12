@@ -67,6 +67,8 @@ spec:
           command:
             - /tmp/manila-data.sh
           env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
 {{- if or .Values.manifests.certificates .Values.tls.identity }}
             - name: REQUESTS_CA_BUNDLE
               value: "/etc/manila/certs/ca.crt"
@@ -74,6 +76,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: etcmanila
               mountPath: /etc/manila
             - name: state-tmp
@@ -103,6 +107,8 @@ spec:
 {{ if $mounts_manila_data.volumeMounts }}{{ toYaml $mounts_manila_data.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: state-tmp
           emptyDir: {}

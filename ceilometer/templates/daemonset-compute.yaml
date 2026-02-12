@@ -61,11 +61,16 @@ spec:
         - name: ceilometer-compute
 {{ tuple $envAll "ceilometer_compute" | include "helm-toolkit.snippets.image" | indent 10 }}
 {{ tuple $envAll $envAll.Values.pod.resources.compute | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
+          env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
           command:
             - /tmp/ceilometer-compute.sh
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: pod-etc-ceilometer
               mountPath: /etc/ceilometer
             - name: ceilometer-etc
@@ -118,6 +123,8 @@ spec:
 {{ if $mounts_ceilometer_compute.volumeMounts }}{{ toYaml $mounts_ceilometer_compute.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: pod-etc-ceilometer
           emptyDir: {}

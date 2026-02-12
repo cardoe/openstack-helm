@@ -109,6 +109,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: neutron-bin
               mountPath: /tmp/neutron-metadata-agent-init.sh
               subPath: neutron-metadata-agent-init.sh
@@ -127,6 +129,8 @@ spec:
 {{ tuple $envAll "neutron_metadata" | include "helm-toolkit.snippets.image" | indent 10 }}
 {{ tuple $envAll $envAll.Values.pod.resources.agent.metadata | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
           env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
             - name: RPC_PROBE_TIMEOUT
               value: "{{ .Values.pod.probes.rpc_timeout }}"
             - name: RPC_PROBE_RETRIES
@@ -210,6 +214,8 @@ spec:
 {{ if $mounts_neutron_metadata_agent.volumeMounts }}{{ toYaml $mounts_neutron_metadata_agent.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: pod-var-neutron
           emptyDir: {}

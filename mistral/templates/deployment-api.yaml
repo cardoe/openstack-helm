@@ -59,6 +59,9 @@ spec:
 {{ tuple $envAll $envAll.Values.pod.resources.api | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
           securityContext:
             runAsUser: {{ .Values.pod.user.mistral.uid }}
+          env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
           command:
             - /tmp/mistral-api.sh
             - start
@@ -79,6 +82,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: pod-etc-mistral
               mountPath: /etc/mistral
             - name: mistral-bin
@@ -102,6 +107,8 @@ spec:
 {{ if $mounts_mistral_api.volumeMounts }}{{ toYaml $mounts_mistral_api.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: pod-etc-mistral
           emptyDir: {}

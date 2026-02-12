@@ -92,6 +92,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: neutron-bin
               mountPath: /tmp/neutron-sriov-agent-init.sh
               subPath: neutron-sriov-agent-init.sh
@@ -149,6 +151,8 @@ spec:
 {{ tuple $envAll $envAll.Values.pod.resources.agent.sriov | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
 {{ dict "envAll" $envAll "application" "neutron_sriov_agent" "container" "neutron_sriov_agent" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
           env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
             - name: RPC_PROBE_TIMEOUT
               value: "{{ .Values.pod.probes.rpc_timeout }}"
             - name: RPC_PROBE_RETRIES

@@ -68,6 +68,9 @@ spec:
 {{ tuple $envAll "swift_proxy" | include "helm-toolkit.snippets.image" | indent 10 }}
 {{ tuple $envAll $envAll.Values.pod.resources.proxy | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
 {{ dict "envAll" $envAll "application" "swift" "container" "swift_proxy" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
+          env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
           command:
             - /bin/bash
             - -c
@@ -90,6 +93,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: swift-bin
               mountPath: /tmp/proxy-start.sh
               subPath: proxy-start.sh
@@ -121,6 +126,8 @@ spec:
 {{- if $mounts_swift_proxy.volumeMounts }}{{ toYaml $mounts_swift_proxy.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: swift-bin
           configMap:

@@ -71,6 +71,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: cinder-coordination
               mountPath: {{ ( split "://" .Values.conf.cinder.coordination.backend_url )._1 }}
         {{ end }}
@@ -79,6 +81,9 @@ spec:
 {{ tuple $envAll "cinder_scheduler" | include "helm-toolkit.snippets.image" | indent 10 }}
 {{ tuple $envAll $envAll.Values.pod.resources.scheduler | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
 {{ dict "envAll" $envAll "application" "cinder_scheduler" "container" "cinder_scheduler" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
+          env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
           command:
             - /tmp/cinder-scheduler.sh
           volumeMounts:
@@ -120,6 +125,8 @@ spec:
         - name: pod-tmp
           emptyDir: {}
         - name: pod-var-cinder
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: cinder-bin
           configMap:

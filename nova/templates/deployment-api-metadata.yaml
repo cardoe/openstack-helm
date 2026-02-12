@@ -87,6 +87,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: nova-bin
               mountPath: /tmp/nova-api-metadata-init.sh
               subPath: nova-api-metadata-init.sh
@@ -107,6 +109,8 @@ spec:
 {{ dict "envAll" $envAll "application" "nova" "container" "nova_api" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
 {{- if or .Values.manifests.certificates .Values.tls.identity }}
           env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
             - name: REQUESTS_CA_BUNDLE
               value: "/etc/nova/certs/ca.crt"
 {{- end }}
@@ -212,6 +216,8 @@ spec:
 {{ if $mounts_nova_api_metadata.volumeMounts }}{{ toYaml $mounts_nova_api_metadata.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         {{- if .Values.manifests.certificates }}
         - name: wsgi-nova

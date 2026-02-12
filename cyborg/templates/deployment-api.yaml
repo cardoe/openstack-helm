@@ -61,6 +61,8 @@ spec:
 {{ tuple $envAll $envAll.Values.pod.resources.api | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
 {{ dict "envAll" $envAll "application" "cyborg" "container" "cyborg" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
           env:
+            - name: OSLO_LOCK_PATH
+              value: "/var/lock"
           - name: HOST_IP
             valueFrom:
               fieldRef:
@@ -87,6 +89,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: /var/lock
             - name: pod-var-cyborg
               mountPath: /var/lib/cyborg
             - name: cyborg-bin
@@ -108,6 +112,8 @@ spec:
 {{ if $mounts_cyborg_api.volumeMounts }}{{ toYaml $mounts_cyborg_api.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: pod-var-cyborg
           emptyDir: {}
