@@ -1,0 +1,17 @@
+---
+conf:
+  nova:
+    database:
+      connection: null
+    api_database:
+      connection: null
+    cell0_database:
+      connection: null
+
+manifests:
+  job_db_init: false
+  job_db_sync: false
+  secret_db: false
+  secret_db_api: false
+  secret_db_cell0: false
+

@@ -1,0 +1,15 @@
+---
+conf:
+  gnocchi:
+    database:
+      connection: null
+    indexer:
+      url: null
+
+manifests:
+  job_db_init: false
+  job_db_init_indexer: false
+  job_db_sync: false
+  secret_db: false
+  secret_db_indexer: false
+

@@ -1,0 +1,13 @@
+---
+conf:
+  designate:
+    database:
+      connection: null
+    storage:sqlalchemy:
+      connection: null
+
+manifests:
+  job_db_init: false
+  job_db_sync: false
+  secret_db: false
+

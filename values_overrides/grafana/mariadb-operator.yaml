@@ -1,0 +1,12 @@
+---
+conf:
+  grafana:
+    database:
+      url: null
+
+manifests:
+  job_db_init: false
+  job_db_init_session: false
+  secret_db: false
+  secret_db_session: false
+

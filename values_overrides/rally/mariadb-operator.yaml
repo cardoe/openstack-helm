@@ -1,0 +1,10 @@
+---
+conf:
+  rally:
+    database:
+      connection: null
+
+manifests:
+  job_db_init: false
+  secret_db: false
+

@@ -1,0 +1,14 @@
+---
+conf:
+  octavia:
+    database:
+      connection: null
+    task_flow:
+      persistence_connection: null
+
+manifests:
+  job_db_init: false
+  job_db_sync: false
+  secret_db: false
+  secret_db_persistence: false
+
