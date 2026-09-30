@@ -25,21 +25,26 @@ images:
   pull_policy: IfNotPresent
   tags:
     test: docker.io/xrally/xrally-openstack:2.0.0
-    bootstrap: quay.io/airshipit/openstack-client:2025.1-ubuntu_jammy
-    db_init: quay.io/airshipit/openstack-client:2025.1-ubuntu_jammy
-    db_drop: quay.io/airshipit/openstack-client:2025.1-ubuntu_jammy
-    ks_user: quay.io/airshipit/openstack-client:2025.1-ubuntu_jammy
-    ks_service: quay.io/airshipit/openstack-client:2025.1-ubuntu_jammy
-    ks_endpoints: quay.io/airshipit/openstack-client:2025.1-ubuntu_jammy
-    freezer_db_sync: quay.io/airshipit/freezer-api:2025.1-ubuntu_jammy
-    freezer_api: quay.io/airshipit/freezer-api:2025.1-ubuntu_jammy
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
+    bootstrap: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    db_init: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    db_drop: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_user: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_service: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_endpoints: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    freezer_db_sync: quay.io/airshipit/freezer-api:2026.1-ubuntu_noble
+    freezer_api: quay.io/airshipit/freezer-api:2026.1-ubuntu_noble
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_noble
     image_repo_sync: docker.io/docker:17.07.0
   local_registry:
     active: false
     exclude:
       - dep_check
       - image_repo_sync
+
+identity:
+  openrc:
+    exclude_vars: []
+    extra_vars: []
 
 endpoints:
   cluster_domain_suffix: cluster.local
@@ -109,9 +114,6 @@ endpoints:
       admin:
         username: root
         password: password
-        secret:
-          tls:
-            internal: mariadb-tls-direct
         secretNamespace: openstack
       freezer:
         username: freezer
@@ -147,8 +149,11 @@ secrets:
     freezer: freezer-keystone-user
   oslo_db:
     admin: freezer-db-admin
-    freezer: freezer-db-user
   tls:
+    # Client certificate this chart presents for mTLS backend connections.
+    # Separate from the MariaDB server certificate.
+    client:
+      freezer: freezer-client
     backup:
       api:
         public: freezer-tls-public
@@ -163,14 +168,6 @@ bootstrap:
 
 network:
   api:
-    ingress:
-      public: true
-      classes:
-        namespace: "ingress-openstack"
-        cluster: "ingress-cluster"
-      annotations:
-        nginx.ingress.kubernetes.io/rewrite-target: /
-        haproxy.org/path-rewrite: /
     external_policy_local: false
     node_port:
       enabled: false
@@ -388,8 +385,15 @@ conf:
       config_file: api-paste.ini
     database:
       max_retries: -1
+      # -- Database connection URI. When empty the URI is auto-generated
+      ## from endpoints.oslo_db. Set to null to disable auto-generation,
+      ## e.g. when using an operator such as mariadb-operator that supplies
+      ## the connection string via a mounted configuration snippet.
+      connection: ""
     oslo_policy:
       policy_file: /etc/freezer/policy.yaml
+    oslo_concurrency:
+      lock_path: /var/lock
     storage:
       backend: sqlalchemy
       driver: sqlalchemy
@@ -474,8 +478,8 @@ conf:
       paste.app_factory: freezer_api.service:freezer_appv2_factory
     filter:authtoken:
       paste.filter_factory: keystonemiddleware.auth_token:filter_factory
-    filter:healthcheck:
-      paste.filter_factory: oslo_middleware:Healthcheck.factory
+    app:healthcheck:
+      paste.app_factory: oslo_middleware:Healthcheck.app_factory
       backends: disable_by_file
       disable_by_file_path: /etc/freezer/healthcheck_disable
     filter:context:
@@ -484,11 +488,13 @@ conf:
       paste.filter_factory: freezer_api.api.versions:VersionNegotiator.factory
     filter:http_proxy_to_wsgi:
       paste.filter_factory: oslo_middleware:HTTPProxyToWSGI.factory
-    pipeline:main:
-      pipeline: healthcheck http_proxy_to_wsgi versionsNegotiator authtoken context backupapp
-    pipeline:unauthenticated_freezer_api:
-      pipeline: http_proxy_to_wsgi healthcheck freezer_app
-    composite:backupapp:
+    composite:main:
+      use: egg:Paste#urlmap
+      /: backupapp
+      /healthcheck: healthcheck
+    pipeline:backupapp:
+      pipeline: http_proxy_to_wsgi versionsNegotiator authtoken context rootapp
+    composite:rootapp:
       paste.composite_factory: freezer_api.service:root_app_factory
       /: api_versions
       /v1: appv1
@@ -498,16 +504,11 @@ tls:
   identity: false
   oslo_db: false
 
-# NOTE(helm_hook): helm_hook might break for helm2 binary.
-# set helm3_hook: false when using the helm2 binary.
-helm3_hook: true
-
 manifests:
   certificates: false
   configmap_bin: true
   configmap_etc: true
   deployment_api: true
-  ingress_api: true
   job_bootstrap: true
   job_db_init: true
   job_db_sync: true
@@ -520,5 +521,37 @@ manifests:
   secret_db: true
   secret_keystone: true
   service_api: true
-  service_ingress_api: true
+# -- Extra K8s manifests to deploy. Either a list or a map of manifests.
+## Note: Supports use of custom Helm templates
+## Note: Helm replaces (instead of merging) list values when several values
+## files are combined, so if you need to define extraObjects in more than one
+## overrides file, use the map form and make sure the keys are unique across
+## those files. With the list form only the last file takes effect.
+extraObjects: {}
+  # osh_secrets_store:
+  #   apiVersion: secrets-store.csi.x-k8s.io/v1
+  #   kind: SecretProviderClass
+  #   metadata:
+  #     name: osh-secrets-store
+  #   spec:
+  #     provider: aws
+  #     parameters:
+  #       objects: |
+  #         - objectName: "osh"
+  #           objectType: "secretsmanager"
+  #           jmesPath:
+  #               - path: "client_id"
+  #                 objectAlias: "client_id"
+  #               - path: "client_secret"
+  #                 objectAlias: "client_secret"
+  #     secretObjects:
+  #     - data:
+  #       - key: client_id
+  #         objectName: client_id
+  #       - key: client_secret
+  #         objectName: client_secret
+  #       secretName: osh-secrets-store
+  #       type: Opaque
+  #       labels:
+  #         app.kubernetes.io/part-of: osh
 ...

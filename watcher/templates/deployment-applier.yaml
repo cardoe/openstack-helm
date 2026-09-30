@@ -58,14 +58,16 @@ spec:
           securityContext:
             runAsUser: {{ .Values.pod.user.watcher.uid }}
           command:
-            - /tmp/watcher-applier.sh
+            - watcher-applier
+            - --config-file
+            - /etc/watcher/watcher.conf
           volumeMounts:
+            - name: pod-tmp
+              mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: {{ .Values.conf.watcher.oslo_concurrency.lock_path }}
             - name: pod-etc-watcher
               mountPath: /etc/watcher
-            - name: watcher-bin
-              mountPath: /tmp/watcher-applier.sh
-              subPath: watcher-applier.sh
-              readOnly: true
             - name: watcher-etc
               mountPath: /etc/watcher/watcher.conf
               subPath: watcher.conf
@@ -76,6 +78,10 @@ spec:
               readOnly: true
 {{ if $mounts_watcher_applier.volumeMounts }}{{ toYaml $mounts_watcher_applier.volumeMounts | indent 12 }}{{ end }}
       volumes:
+        - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
+          emptyDir: {}
         - name: pod-etc-watcher
           emptyDir: {}
         - name: watcher-bin

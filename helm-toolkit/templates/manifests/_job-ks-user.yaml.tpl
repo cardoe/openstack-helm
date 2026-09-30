@@ -110,14 +110,26 @@ spec:
               readOnly: true
 {{ dict "enabled" true "name" $tlsSecret "ca" true | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
           env:
-{{- with $env := dict "ksUserSecret" $envAll.Values.secrets.identity.admin "useCA" (ne $tlsSecret "") }}
-{{- include "helm-toolkit.snippets.keystone_openrc_env_vars" $env | indent 12 }}
+{{- $identityOpenrc := dict }}
+{{- if hasKey $envAll.Values "identity" }}
+{{- if hasKey $envAll.Values.identity "openrc" }}
+{{- $identityOpenrc = $envAll.Values.identity.openrc }}
 {{- end }}
+{{- end }}
+{{- $env := dict "ksUserSecret" $envAll.Values.secrets.identity.admin -}}
+{{- $_ := set $env "useCA" (ne $tlsSecret "") -}}
+{{- $_ := set $env "excludeVars" ($identityOpenrc.exclude_vars | default list) -}}
+{{- $_ := set $env "extraVars" ($identityOpenrc.extra_vars | default list) -}}
+{{- include "helm-toolkit.snippets.keystone_openrc_env_vars" $env | indent 12 }}
             - name: SERVICE_OS_SERVICE_NAME
               value: {{ $serviceName | quote }}
-{{- with $env := dict "ksUserSecret" (index $envAll.Values.secrets.identity $serviceUser ) }}
-{{- include "helm-toolkit.snippets.keystone_user_create_env_vars" $env | indent 12 }}
-{{- end }}
+{{- /*
+  extraVars is forced empty to prevent duplicating vars already emitted by
+  keystone_openrc_env_vars above; both snippets share identity.openrc.extra_vars
+  but this container env spec is a single flat list.
+*/ -}}
+{{- $userEnv := dict "ksUserSecret" (index $envAll.Values.secrets.identity $serviceUser) "envAll" $envAll "extraVars" (list) -}}
+{{- include "helm-toolkit.snippets.keystone_user_create_env_vars" $userEnv | indent 12 }}
             - name: SERVICE_OS_ROLES
             {{- $serviceOsRoles := index $envAll.Values.endpoints.identity.auth $serviceUser "role" }}
             {{- if kindIs "slice" $serviceOsRoles }}

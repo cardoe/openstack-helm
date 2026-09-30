@@ -19,12 +19,10 @@ helm.sh/hook-weight: "-4"
 
 {{- if .Values.manifests.job_db_sync }}
 {{- $dbSyncJob := dict "envAll" . "serviceName" "cinder" "podVolMounts" .Values.pod.mounts.cinder_db_sync.cinder_db_sync.volumeMounts "podVols" .Values.pod.mounts.cinder_db_sync.cinder_db_sync.volumes -}}
-{{- if .Values.manifests.certificates -}}
-{{- $_ := set $dbSyncJob "dbAdminTlsSecret" .Values.endpoints.oslo_db.auth.admin.secret.tls.internal -}}
+{{- if .Values.tls.oslo_db -}}
+{{- $_ := set $dbSyncJob "dbAdminTlsSecret" .Values.secrets.tls.client.cinder -}}
 {{- end -}}
-{{- if .Values.helm3_hook }}
 {{- $_ := set $dbSyncJob "jobAnnotations" (include "metadata.annotations.job.db_sync" . | fromYaml) }}
-{{- end }}
 {{- if .Values.pod.tolerations.cinder.enabled -}}
 {{- $_ := set $dbSyncJob "tolerationsEnabled" true -}}
 {{- end -}}

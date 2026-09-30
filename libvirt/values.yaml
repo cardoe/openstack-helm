@@ -26,10 +26,9 @@ labels:
 
 images:
   tags:
-    libvirt: quay.io/airshipit/libvirt:2025.1-ubuntu_noble
-    libvirt_exporter: vexxhost/libvirtd-exporter:latest
-    ceph_config_helper: 'quay.io/airshipit/ceph-config-helper:ubuntu_jammy_20.2.0-1-20260116'
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
+    libvirt: quay.io/airshipit/libvirt:2026.1-ubuntu_noble
+    ceph_config_helper: 'quay.io/airshipit/ceph-config-helper:ubuntu_noble_20.2.4-1-20260902'
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_noble
     image_repo_sync: quay.io/airshipit/docker:27.5.0
     kubectl: docker.io/bitnami/kubectl:latest
   pull_policy: "IfNotPresent"
@@ -41,7 +40,7 @@ images:
 
 network:
   # provide what type of network wiring will be used
-  # possible options: openvswitch, linuxbridge, sriov
+  # possible options: openvswitch, sriov
   backend:
     - openvswitch
 
@@ -74,10 +73,6 @@ endpoints:
     port:
       registry:
         default: null
-  libvirt_exporter:
-    port:
-      metrics:
-        default: 9474
 
 network_policy:
   libvirt:
@@ -273,19 +268,6 @@ pod:
             initialDelaySeconds: 15
             periodSeconds: 60
             timeoutSeconds: 5
-      libvirt_exporter:
-        liveness:
-          enabled: true
-          params:
-            initialDelaySeconds: 30
-            periodSeconds: 60
-            timeoutSeconds: 5
-        readiness:
-          enabled: true
-          params:
-            initialDelaySeconds: 15
-            periodSeconds: 60
-            timeoutSeconds: 5
   security_context:
     libvirt:
       pod:
@@ -298,8 +280,6 @@ pod:
         libvirt:
           privileged: true
           readOnlyRootFilesystem: false
-        libvirt_exporter:
-          privileged: true
         libvirt_init_modules:
           readOnlyRootFilesystem: true
           privileged: true
@@ -314,12 +294,6 @@ pod:
           capabilities:
             drop:
               - ALL
-  sidecars:
-    libvirt_exporter:
-      enabled: false
-      args:
-        - "--libvirt.nova"
-
   affinity:
     anti:
       type:
@@ -368,13 +342,6 @@ pod:
         limits:
           memory: "1024Mi"
           cpu: "2000m"
-    libvirt_exporter:
-      requests:
-        memory: "128Mi"
-        cpu: "100m"
-      limits:
-        memory: "256Mi"
-        cpu: "500m"
 
 dependencies:
   dynamic:
@@ -400,13 +367,6 @@ dependencies:
               labels:
                 application: neutron
                 component: neutron-ovs-agent
-      linuxbridge:
-        libvirt:
-          pod:
-            - requireSameNode: true
-              labels:
-                application: neutron
-                component: neutron-lb-agent
       sriov:
         libvirt:
           pod:
@@ -422,6 +382,10 @@ dependencies:
         - endpoint: internal
           service: local_image_registry
 
+libvirt:
+  extraContainers: []
+
+
 manifests:
   configmap_bin: true
   configmap_etc: true
@@ -430,7 +394,6 @@ manifests:
   network_policy: false
   role_cert_manager: false
   secret_registry: true
-  podmonitor: false
 
 secrets:
   oci_image_registry:
@@ -438,4 +401,38 @@ secrets:
   tls:
     server: libvirt-tls-server
     client: libvirt-tls-client
+
+# -- Extra K8s manifests to deploy. Either a list or a map of manifests.
+## Note: Supports use of custom Helm templates
+## Note: Helm replaces (instead of merging) list values when several values
+## files are combined, so if you need to define extraObjects in more than one
+## overrides file, use the map form and make sure the keys are unique across
+## those files. With the list form only the last file takes effect.
+extraObjects: {}
+  # osh_secrets_store:
+  #   apiVersion: secrets-store.csi.x-k8s.io/v1
+  #   kind: SecretProviderClass
+  #   metadata:
+  #     name: osh-secrets-store
+  #   spec:
+  #     provider: aws
+  #     parameters:
+  #       objects: |
+  #         - objectName: "osh"
+  #           objectType: "secretsmanager"
+  #           jmesPath:
+  #               - path: "client_id"
+  #                 objectAlias: "client_id"
+  #               - path: "client_secret"
+  #                 objectAlias: "client_secret"
+  #     secretObjects:
+  #     - data:
+  #       - key: client_id
+  #         objectName: client_id
+  #       - key: client_secret
+  #         objectName: client_secret
+  #       secretName: osh-secrets-store
+  #       type: Opaque
+  #       labels:
+  #         app.kubernetes.io/part-of: osh
 ...

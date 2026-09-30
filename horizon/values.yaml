@@ -18,12 +18,12 @@
 ---
 images:
   tags:
-    db_init: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    horizon_db_sync: quay.io/airshipit/horizon:2025.1-ubuntu_noble
-    db_drop: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    horizon: quay.io/airshipit/horizon:2025.1-ubuntu_noble
+    db_init: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    horizon_db_sync: quay.io/airshipit/horizon:2026.1-ubuntu_noble
+    db_drop: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    horizon: quay.io/airshipit/horizon:2026.1-ubuntu_noble
     test: quay.io/airshipit/osh-selenium:latest-ubuntu_noble
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_noble
     image_repo_sync: docker.io/docker:17.07.0
   pull_policy: "IfNotPresent"
   local_registry:
@@ -50,15 +50,9 @@ labels:
 
 network:
   dashboard:
-    ingress:
-      public: true
-      classes:
-        namespace: "ingress-openstack"
-        cluster: "ingress-cluster"
-      annotations:
-        nginx.ingress.kubernetes.io/rewrite-target: /
-        nginx.ingress.kubernetes.io/proxy-body-size: "0"
-        haproxy.org/path-rewrite: /
+    # Pod port the Service routes to; null => Kubernetes uses the web port.
+    # A deployment override sets this (e.g. 443) to point at a TLS sidecar.
+    target_port: null
   external_policy_local: false
   node_port:
     enabled: false
@@ -201,12 +195,14 @@ conf:
         debug: "False"
         use_ssl: "False"
         endpoint_type: "internalURL"
+        secondary_endpoint_type: "publicURL"
         keystone_multidomain_support: "True"
         keystone_multidomain_dropdown: "False"
         keystone_domains:
           Default: "Default"
           example_domain: "example"
         keystone_default_domain: Default
+        default_service_regions: []
         disable_password_reveal: "True"
         show_openrc_file: "True"
         csrf_cookie_secure: "False"
@@ -259,6 +255,7 @@ conf:
         raw: {}
         openstack_api_versions:
           container_infra: "1.10"
+        secure_proxy_addr_header: "HTTP_X_FORWARDED_FOR"
       template: |
         import os
 
@@ -419,7 +416,7 @@ conf:
                 'PASSWORD': '{{ .Values.endpoints.oslo_db.auth.horizon.password }}',
                 'HOST': '{{ tuple "oslo_db" "internal" . | include "helm-toolkit.endpoints.hostname_fqdn_endpoint_lookup" }}',
                 'default-character-set': 'utf8',
-                {{- if .Values.manifests.certificates }}
+                {{- if .Values.tls.oslo_db }}
                 'OPTIONS':{
                     'ssl': {
                         'ca': '/etc/mysql/certs/ca.crt',
@@ -450,13 +447,19 @@ conf:
         #    ('http://cluster2.example.com:5000/v2.0', 'cluster2'),
         #]
 
+        DEFAULT_SERVICE_REGIONS = {
+          {{- range $i, $service_region := .Values.conf.horizon.local_settings.config.default_service_regions }}
+            '{{ $service_region.service }}': '{{ $service_region.region }}',
+          {{- end }}
+        }
+
         OPENSTACK_KEYSTONE_URL = "{{ tuple "identity" "internal" "api" . | include "helm-toolkit.endpoints.keystone_endpoint_uri_lookup" }}"
         OPENSTACK_KEYSTONE_DEFAULT_ROLE = "member"
 
         # This setting specifies the name of the header with remote IP address. If not present,
-        # then REMOTE_ADDR header is used. The commom value for this setting is HTTP_X_REAL_IP
-        # or HTTP_X_FORWARDED_FORx
-        SECURE_PROXY_ADDR_HEADER = 'HTTP_X_FORWARDED_FOR'
+        # then REMOTE_ADDR header is used. The common value for this setting is HTTP_X_REAL_IP
+        # or HTTP_X_FORWARDED_FOR
+        SECURE_PROXY_ADDR_HEADER = '{{ .Values.conf.horizon.local_settings.config.secure_proxy_addr_header }}'
 
         {{- if .Values.conf.horizon.local_settings.config.auth.sso.enabled }}
         # Enables keystone web single-sign-on if set to True.
@@ -493,9 +496,9 @@ conf:
         # Disable SSL certificate checks (useful for self-signed certificates):
         OPENSTACK_SSL_NO_VERIFY = {{ .Values.conf.horizon.local_settings.config.ssl_no_verify }}
 
-        {{- if .Values.manifests.certificates }}
+        {{- if .Values.secrets.tls.ca }}
         # The CA certificate to use to verify SSL connections
-        OPENSTACK_SSL_CACERT = '/etc/openstack-dashboard/certs/ca.crt'
+        OPENSTACK_SSL_CACERT = '/etc/ssl/certs/openstack-helm.crt'
         {{- end }}
 
         # The OPENSTACK_KEYSTONE_BACKEND settings can be used to identify the
@@ -631,7 +634,7 @@ conf:
         # in the Keystone service catalog. Use this setting when Horizon is running
         # external to the OpenStack environment. The default is None.  This
         # value should differ from OPENSTACK_ENDPOINT_TYPE if used.
-        SECONDARY_ENDPOINT_TYPE = "publicURL"
+        SECONDARY_ENDPOINT_TYPE = "{{ .Values.conf.horizon.local_settings.config.secondary_endpoint_type }}"
 
         # The number of objects (Swift containers/objects or images) to display
         # on a single page before providing a paging element (a "more" link)
@@ -1106,6 +1109,13 @@ dependencies:
           service: dashboard
 
 pod:
+  # -- Extra sidecar containers and volumes to inject into the horizon
+  ## Deployment. Used e.g. by values_overrides/horizon/tls-gateway-and-sidecar.yaml
+  ## to add an nginx TLS-terminating sidecar in front of the apache app server.
+  extraContainers:
+    horizon: []
+  extraVolumes:
+    horizon: []
   security_context:
     horizon:
       pod:
@@ -1239,17 +1249,30 @@ secrets:
     admin: horizon-db-admin
     horizon: horizon-db-user
   tls:
-    dashboard:
-      dashboard:
-        public: horizon-tls-public
-        internal: horizon-tls-web
+    # Client certificate this chart presents for mTLS backend connections.
+    # Separate from the MariaDB server certificate.
+    client:
+      horizon: horizon-client
+    # CA bundle this chart trusts for OUTBOUND TLS calls (keystone). Null by
+    # default -> no CA is mounted and REQUESTS_CA_BUNDLE is left unset. A
+    # deployment override points this at a cert-manager CA-only secret carrying
+    # just ca.crt (no private key); it is mounted at
+    # /etc/ssl/certs/openstack-helm.crt. Assumes every server cert is signed by
+    # this single CA. The chart stays TLS-agnostic -- apache keeps serving the
+    # dashboard over plain HTTP and the nginx TLS sidecar lives in the override.
+    ca: null
   oci_image_registry:
     horizon: horizon-oci-image-registry
 
 tls:
-  identity: false
+  oslo_db: false
 
 # typically overridden by environmental
+identity:
+  openrc:
+    exclude_vars: []
+    extra_vars: []
+
 # values, but should include all endpoints
 # required by this chart
 endpoints:
@@ -1338,9 +1361,6 @@ endpoints:
       admin:
         username: root
         password: password
-        secret:
-          tls:
-            internal: mariadb-tls-direct
       horizon:
         username: horizon
         password: password
@@ -1369,14 +1389,6 @@ endpoints:
       dns:
         default: 53
         protocol: UDP
-  ingress:
-    namespace: null
-    name: ingress
-    hosts:
-      default: ingress
-    port:
-      ingress:
-        default: 80
 
 network_policy:
   horizon:
@@ -1385,17 +1397,11 @@ network_policy:
     egress:
       - {}
 
-# NOTE(helm_hook): helm_hook might break for helm2 binary.
-# set helm3_hook: false when using the helm2 binary.
-helm3_hook: true
-
 manifests:
-  certificates: false
   configmap_bin: true
   configmap_etc: true
   configmap_logo: false
   deployment: true
-  ingress_api: true
   job_db_init: true
   job_db_sync: true
   job_db_drop: false
@@ -1404,9 +1410,41 @@ manifests:
   pod_helm_test: true
   network_policy: false
   secret_db: true
-  secret_ingress_tls: true
   secret_keystone: true
   secret_registry: true
-  service_ingress: true
   service: true
+
+# -- Extra K8s manifests to deploy. Either a list or a map of manifests.
+## Note: Supports use of custom Helm templates
+## Note: Helm replaces (instead of merging) list values when several values
+## files are combined, so if you need to define extraObjects in more than one
+## overrides file, use the map form and make sure the keys are unique across
+## those files. With the list form only the last file takes effect.
+extraObjects: {}
+  # osh_secrets_store:
+  #   apiVersion: secrets-store.csi.x-k8s.io/v1
+  #   kind: SecretProviderClass
+  #   metadata:
+  #     name: osh-secrets-store
+  #   spec:
+  #     provider: aws
+  #     parameters:
+  #       objects: |
+  #         - objectName: "osh"
+  #           objectType: "secretsmanager"
+  #           jmesPath:
+  #               - path: "client_id"
+  #                 objectAlias: "client_id"
+  #               - path: "client_secret"
+  #                 objectAlias: "client_secret"
+  #     secretObjects:
+  #     - data:
+  #       - key: client_id
+  #         objectName: client_id
+  #       - key: client_secret
+  #         objectName: client_secret
+  #       secretName: osh-secrets-store
+  #       type: Opaque
+  #       labels:
+  #         app.kubernetes.io/part-of: osh
 ...

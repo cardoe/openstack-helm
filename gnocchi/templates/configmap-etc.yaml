@@ -54,11 +54,11 @@ limitations under the License.
 {{- $_ := printf "%s://%s" $driver $endpointUrl | set .Values.conf.gnocchi.DEFAULT "coordination_url" -}}
 {{- end -}}
 
-{{- if empty .Values.conf.gnocchi.database.connection -}}
+{{- if and (not (kindIs "invalid" .Values.conf.gnocchi.database.connection)) (empty .Values.conf.gnocchi.database.connection) -}}
 {{- $_ := tuple "oslo_db" "internal" "gnocchi" "mysql" . | include "helm-toolkit.endpoints.authenticated_endpoint_uri_lookup" | set .Values.conf.gnocchi.database "connection" -}}
 {{- end -}}
 
-{{- if empty .Values.conf.gnocchi.indexer.url -}}
+{{- if and (not (kindIs "invalid" .Values.conf.gnocchi.indexer.url)) (empty .Values.conf.gnocchi.indexer.url) -}}
 {{ if eq .Values.conf.gnocchi.indexer.driver "postgresql" }}
 {{- $_ := tuple "oslo_db_postgresql" "internal" "gnocchi" "postgresql" . | include "helm-toolkit.endpoints.authenticated_endpoint_uri_lookup" | set .Values.conf.gnocchi.indexer "url" -}}
 {{ else }}
@@ -86,6 +86,12 @@ limitations under the License.
 {{- $_ := tuple "metric_statsd" "internal" "statsd" . | include "helm-toolkit.endpoints.endpoint_port_lookup" | set .Values.conf.gnocchi.statsd "port" -}}
 {{- end -}}
 
+{{- if empty (index .Values.conf.gnocchi_api_uwsgi.uwsgi "http-socket") -}}
+{{- $http_socket_port := tuple "metric" "service" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" | toString }}
+{{- $http_socket := printf "0.0.0.0:%s" $http_socket_port }}
+{{- $_ := set .Values.conf.gnocchi_api_uwsgi.uwsgi "http-socket" $http_socket -}}
+{{- end -}}
+
 {{- $envAll := . }}
 ---
 apiVersion: v1
@@ -97,5 +103,5 @@ data:
   gnocchi.conf: {{ include "helm-toolkit.utils.to_oslo_conf" .Values.conf.gnocchi | b64enc }}
   api-paste.ini: {{ include "helm-toolkit.utils.to_ini" .Values.conf.paste | b64enc }}
   policy.yaml: {{ toYaml .Values.conf.policy | b64enc }}
-{{- include "helm-toolkit.snippets.values_template_renderer" (dict "envAll" $envAll "template" .Values.conf.apache "key" "wsgi-gnocchi.conf" "format" "Secret" ) | indent 2 }}
+  gnocchi-api-uwsgi.ini: {{ include "helm-toolkit.utils.to_oslo_conf" .Values.conf.gnocchi_api_uwsgi | b64enc }}
 {{- end }}

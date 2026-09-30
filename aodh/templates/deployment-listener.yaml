@@ -22,6 +22,8 @@ limitations under the License.
 
 {{- $serviceAccountName := "aodh-listener" }}
 {{ tuple $envAll "listener" $serviceAccountName | include "helm-toolkit.snippets.kubernetes_pod_rbac_serviceaccount" }}
+
+{{- $etcSources := .Values.pod.etcSources.aodh_listener }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -64,22 +66,22 @@ spec:
 {{ tuple $envAll $envAll.Values.pod.resources.listener | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
 {{ dict "envAll" $envAll "application" "aodh" "container" "aodh_listener" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
           command:
-            - /tmp/aodh-listener.sh
-            - start
-          lifecycle:
-            preStop:
-              exec:
-                command:
-                  - /tmp/aodh-listener.sh
-                  - stop
+            - aodh-listener
+            - --config-file=/etc/aodh/aodh.conf
+            - --config-dir=/etc/aodh/aodh.conf.d
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: {{ .Values.conf.aodh.oslo_concurrency.lock_path }}
             - name: pod-etc-aodh
               mountPath: /etc/aodh
             - name: aodh-etc
               mountPath: /etc/aodh/aodh.conf
               subPath: aodh.conf
+              readOnly: true
+            - name: aodh-etc-snippets
+              mountPath: /etc/aodh/aodh.conf.d/
               readOnly: true
             {{- if .Values.conf.aodh.DEFAULT.log_config_append }}
             - name: aodh-etc
@@ -91,13 +93,11 @@ spec:
               mountPath: /etc/aodh/policy.yaml
               subPath: policy.yaml
               readOnly: true
-            - name: aodh-bin
-              mountPath: /tmp/aodh-listener.sh
-              subPath: aodh-listener.sh
-              readOnly: true
 {{ if $mounts_aodh_listener.volumeMounts }}{{ toYaml $mounts_aodh_listener.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: pod-etc-aodh
           emptyDir: {}
@@ -105,6 +105,14 @@ spec:
           secret:
             secretName: aodh-etc
             defaultMode: 0444
+        - name: aodh-etc-snippets
+{{- if $etcSources }}
+          projected:
+            sources:
+{{ toYaml $etcSources | indent 14 }}
+{{- else }}
+          emptyDir: {}
+{{ end }}
         - name: aodh-bin
           configMap:
             name: aodh-bin

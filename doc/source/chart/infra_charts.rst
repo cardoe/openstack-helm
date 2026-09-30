@@ -13,15 +13,12 @@ Infra charts options
     ceph-provisioners
     ceph-rgw
     cert-rotation
-    daemonjob-controller
     elastic-apm-server
     elastic-filebeat
     elastic-metricbeat
     elastic-packetbeat
     elasticsearch
     etcd
-    falco
-    flannel
     fluentbit
     fluentd
     gnocchi
@@ -35,13 +32,10 @@ Infra charts options
     libvirt
     local-storage
     local-volume-provisioner
-    lockdown
     mariadb
     mariadb-backup
     mariadb-cluster
     memcached
-    metacontroller
-    mongodb
     nagios
     namespace-config
     nfs-provisioner
@@ -60,4 +54,3 @@ Infra charts options
     rabbitmq
     redis
     registry
-    shaker

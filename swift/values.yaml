@@ -13,9 +13,6 @@
 ---
 release_group: null
 
-# Helm3 hook for job ordering
-helm3_hook: true
-
 labels:
   api:
     node_selector_key: openstack-control-plane
@@ -32,19 +29,19 @@ labels:
 
 images:
   tags:
-    bootstrap: quay.io/airshipit/swift:2025.2-ubuntu_noble
-    test: quay.io/airshipit/swift:2025.2-ubuntu_noble
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
-    swift_proxy: quay.io/airshipit/swift:2025.2-ubuntu_noble
-    swift_account: quay.io/airshipit/swift:2025.2-ubuntu_noble
-    swift_container: quay.io/airshipit/swift:2025.2-ubuntu_noble
-    swift_object: quay.io/airshipit/swift:2025.2-ubuntu_noble
-    swift_storage: quay.io/airshipit/swift:2025.2-ubuntu_noble
-    swift_storage_init: quay.io/airshipit/swift:2025.2-ubuntu_noble
-    swift_ring_builder: quay.io/airshipit/swift:2025.2-ubuntu_noble
-    ks_user: quay.io/airshipit/heat:2025.2-ubuntu_noble
-    ks_service: quay.io/airshipit/heat:2025.2-ubuntu_noble
-    ks_endpoints: quay.io/airshipit/heat:2025.2-ubuntu_noble
+    bootstrap: quay.io/airshipit/swift:2026.1-ubuntu_noble
+    test: quay.io/airshipit/swift:2026.1-ubuntu_noble
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_noble
+    swift_proxy: quay.io/airshipit/swift:2026.1-ubuntu_noble
+    swift_account: quay.io/airshipit/swift:2026.1-ubuntu_noble
+    swift_container: quay.io/airshipit/swift:2026.1-ubuntu_noble
+    swift_object: quay.io/airshipit/swift:2026.1-ubuntu_noble
+    swift_storage: quay.io/airshipit/swift:2026.1-ubuntu_noble
+    swift_storage_init: quay.io/airshipit/swift:2026.1-ubuntu_noble
+    swift_ring_builder: quay.io/airshipit/swift:2026.1-ubuntu_noble
+    ks_user: quay.io/airshipit/heat:2026.1-ubuntu_noble
+    ks_service: quay.io/airshipit/heat:2026.1-ubuntu_noble
+    ks_endpoints: quay.io/airshipit/heat:2026.1-ubuntu_noble
     image_repo_sync: docker.io/docker:17.07.0
   pull_policy: Always
   local_registry:
@@ -219,14 +216,6 @@ network_policy:
 
 network:
   proxy:
-    ingress:
-      public: true
-      classes:
-        namespace: "ingress-openstack"
-        cluster: "ingress-cluster"
-      annotations:
-        nginx.ingress.kubernetes.io/rewrite-target: /
-        nginx.ingress.kubernetes.io/proxy-body-size: "0"
     external_policy_local: false
     node_port:
       enabled: false
@@ -574,19 +563,15 @@ dependencies:
     ring_builder:
       jobs: null
       services: null
-    # storage_init:
-    #   jobs:
-    #     - swift-ring-builder
-    #   services: null
     storage:
-      # jobs:
-      #   - swift-storage-init
+      jobs:
+        - swift-ring-builder
       services: null
     proxy:
       daemonset:
         - swift-storage
-      # jobs:
-      #   - swift-storage-init
+      jobs:
+        - swift-ring-builder
       services:
         - endpoint: internal
           service: identity
@@ -621,6 +606,11 @@ dependencies:
           service: identity
         - endpoint: internal
           service: object_store
+
+identity:
+  openrc:
+    exclude_vars: []
+    extra_vars: []
 
 endpoints:
   cluster_domain_suffix: cluster.local
@@ -725,11 +715,42 @@ manifests:
   pdb_proxy: true
   pdb_storage: true
   secret_keystone: true
-  ingress_proxy: true
-  service_ingress_proxy: true
   service_proxy: true
   network_policy: false
   pod_test: false
   certificates: false
   pvc: true
+# -- Extra K8s manifests to deploy. Either a list or a map of manifests.
+## Note: Supports use of custom Helm templates
+## Note: Helm replaces (instead of merging) list values when several values
+## files are combined, so if you need to define extraObjects in more than one
+## overrides file, use the map form and make sure the keys are unique across
+## those files. With the list form only the last file takes effect.
+extraObjects: {}
+  # osh_secrets_store:
+  #   apiVersion: secrets-store.csi.x-k8s.io/v1
+  #   kind: SecretProviderClass
+  #   metadata:
+  #     name: osh-secrets-store
+  #   spec:
+  #     provider: aws
+  #     parameters:
+  #       objects: |
+  #         - objectName: "osh"
+  #           objectType: "secretsmanager"
+  #           jmesPath:
+  #               - path: "client_id"
+  #                 objectAlias: "client_id"
+  #               - path: "client_secret"
+  #                 objectAlias: "client_secret"
+  #     secretObjects:
+  #     - data:
+  #       - key: client_id
+  #         objectName: client_id
+  #       - key: client_secret
+  #         objectName: client_secret
+  #       secretName: osh-secrets-store
+  #       type: Opaque
+  #       labels:
+  #         app.kubernetes.io/part-of: osh
 ...

@@ -81,14 +81,9 @@ spec:
               value: "/etc/zaqar/certs/ca.crt"
 {{- end }}
           command:
-            - /tmp/zaqar-api.sh
-            - start
-          lifecycle:
-            preStop:
-              exec:
-                command:
-                  - /tmp/zaqar-api.sh
-                  - stop
+            - zaqar-server
+            - --config-file
+            - /etc/zaqar/zaqar.conf
           ports:
             - name: z-api
               containerPort: {{ tuple "messaging" "internal" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
@@ -97,12 +92,10 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: {{ .Values.conf.zaqar.oslo_concurrency.lock_path }}
             - name: pod-etc-zaqar
               mountPath: /etc/zaqar
-            - name: zaqar-bin
-              mountPath: /tmp/zaqar-api.sh
-              subPath: zaqar-api.sh
-              readOnly: true
             - name: zaqar-etc
               mountPath: /etc/zaqar/zaqar.conf
               subPath: zaqar.conf
@@ -124,11 +117,13 @@ spec:
               mountPath: /etc/zaqar/policy.yaml
               subPath: policy.yaml
               readOnly: true
-{{- dict "enabled" .Values.manifests.certificates "name" .Values.endpoints.oslo_db.auth.admin.secret.tls.internal "path" "/etc/mysql/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
+{{- dict "enabled" .Values.tls.oslo_db "name" "client-certs" "path" "/etc/mysql/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
 {{- dict "enabled" (or .Values.manifests.certificates .Values.tls.identity) "name" .Values.secrets.tls.messaging.api.internal "path" "/etc/zaqar/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
 {{ if $mounts_zaqar_api.volumeMounts }}{{ toYaml $mounts_zaqar_api.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: pod-etc-zaqar
           emptyDir: {}
@@ -145,7 +140,7 @@ spec:
             sources:
               - secret:
                   name: zaqar-ks-etc
-{{- dict "enabled" .Values.manifests.certificates "name" .Values.endpoints.oslo_db.auth.admin.secret.tls.internal | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
+{{- dict "enabled" (or .Values.tls.oslo_db .Values.tls.oslo_messaging) "name" "client-certs" "secretName" .Values.secrets.tls.client.zaqar | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
 {{- dict "enabled" (or .Values.manifests.certificates .Values.tls.identity) "name" .Values.secrets.tls.messaging.api.internal | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
 {{ if $mounts_zaqar_api.volumes }}{{ toYaml $mounts_zaqar_api.volumes | indent 8 }}{{ end }}
 {{- end }}

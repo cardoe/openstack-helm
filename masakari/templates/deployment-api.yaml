@@ -14,16 +14,16 @@ limitations under the License.
 
 {{- define "masakariApiLivenessProbeTemplate" }}
 httpGet:
-  scheme: {{ tuple "instance_ha" "internal" "api" . | include "helm-toolkit.endpoints.keystone_endpoint_scheme_lookup" | upper }}
+  scheme: {{ tuple "instance_ha" "service" "api" . | include "helm-toolkit.endpoints.keystone_endpoint_scheme_lookup" | upper }}
   path: /
-  port: {{ tuple "instance_ha" "internal" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
+  port: {{ tuple "instance_ha" "service" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
 {{- end }}
 
 {{- define "masakariApiReadinessProbeTemplate" }}
 httpGet:
-  scheme: HTTP
+  scheme: {{ tuple "instance_ha" "service" "api" . | include "helm-toolkit.endpoints.keystone_endpoint_scheme_lookup" | upper }}
   path: /
-  port: {{ tuple "instance_ha" "internal" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
+  port: {{ tuple "instance_ha" "service" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
 {{- end }}
 
 
@@ -76,25 +76,19 @@ spec:
 {{ tuple $envAll $envAll.Values.pod.resources.masakari_api | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
 {{ dict "envAll" $envAll "application" "masakari" "container" "masakari_api" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
           command:
-            - /tmp/masakari-api.sh
-            - start
-          lifecycle:
-            preStop:
-              exec:
-                command:
-                  - /tmp/masakari-api.sh
-                  - stop
+            - masakari-api
+            - --config-file
+            - /etc/masakari/masakari.conf
           ports:
             - name: n-api
-              containerPort: {{ tuple "instance_ha" "internal" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
+              containerPort: {{ tuple "instance_ha" "service" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
 {{ dict "envAll" $envAll "component" "masakari" "container" "default" "type" "liveness" "probeTemplate" (include "masakariApiLivenessProbeTemplate" $envAll | fromYaml) | include "helm-toolkit.snippets.kubernetes_probe" | indent 10 }}
 {{ dict "envAll" $envAll "component" "masakari" "container" "default" "type" "readiness" "probeTemplate" (include "masakariApiReadinessProbeTemplate" $envAll | fromYaml) | include "helm-toolkit.snippets.kubernetes_probe" | indent 10 }}
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
-            - name: masakari-bin
-              mountPath: /tmp/masakari-api.sh
-              subPath: masakari-api.sh
+            - name: oslo-lock-path
+              mountPath: {{ .Values.conf.masakari.oslo_concurrency.lock_path }}
             - name: etcmasakari
               mountPath: /etc/masakari
             - name: masakari-etc
@@ -105,6 +99,8 @@ spec:
               subPath: api-paste.ini
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: etcmasakari
           emptyDir: {}

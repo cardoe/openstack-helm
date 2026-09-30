@@ -13,20 +13,20 @@
 ---
 images:
   tags:
-    db_init: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    db_sync: quay.io/airshipit/masakari:2025.1-ubuntu_noble
-    db_drop: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_endpoints: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_service: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_user: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    masakari_api: quay.io/airshipit/masakari:2025.1-ubuntu_noble
-    masakari_engine: quay.io/airshipit/masakari:2025.1-ubuntu_noble
-    masakari_host_monitor: quay.io/airshipit/masakari-monitors:2025.1-ubuntu_noble
-    masakari_process_monitor: quay.io/airshipit/masakari-monitors:2025.1-ubuntu_noble
-    masakari_instance_monitor: quay.io/airshipit/masakari-monitors:2025.1-ubuntu_noble
-    masakari_introspective_instance_monitor: quay.io/airshipit/masakari-monitors:2025.1-ubuntu_noble
-    rabbit_init: docker.io/rabbitmq:3.13-management
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
+    db_init: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    db_sync: quay.io/airshipit/masakari:2026.1-ubuntu_noble
+    db_drop: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_endpoints: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_service: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_user: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    masakari_api: quay.io/airshipit/masakari:2026.1-ubuntu_noble
+    masakari_engine: quay.io/airshipit/masakari:2026.1-ubuntu_noble
+    masakari_host_monitor: quay.io/airshipit/masakari-monitors:2026.1-ubuntu_noble
+    masakari_process_monitor: quay.io/airshipit/masakari-monitors:2026.1-ubuntu_noble
+    masakari_instance_monitor: quay.io/airshipit/masakari-monitors:2026.1-ubuntu_noble
+    masakari_introspective_instance_monitor: quay.io/airshipit/masakari-monitors:2026.1-ubuntu_noble
+    rabbit_init: docker.io/rabbitmq:4.3.5-management
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_noble
   pull_policy: "IfNotPresent"
   local_registry:
     active: false
@@ -44,9 +44,17 @@ labels:
   monitors:
     node_selector_key: openstack-compute-node
     node_selector_value: enabled
+  host_monitors:
+    node_selector_key: openstack-control-plane
+    node_selector_value: enabled
   test:
     node_selector_key: openstack-control-plane
     node_selector_value: enabled
+
+identity:
+  openrc:
+    exclude_vars: []
+    extra_vars: []
 
 endpoints:
   cluster_domain_suffix: cluster.local
@@ -97,9 +105,6 @@ endpoints:
       admin:
         username: root
         password: password
-        secret:
-          tls:
-            internal: mariadb-tls-direct
       masakari:
         username: masakari
         password: password
@@ -156,9 +161,6 @@ endpoints:
       admin:
         username: rabbitmq
         password: password
-        secret:
-          tls:
-            internal: rabbitmq-tls-direct
       masakari:
         username: masakari
         password: password
@@ -222,14 +224,6 @@ endpoints:
       dns:
         default: 53
         protocol: UDP
-  ingress:
-    namespace: null
-    name: ingress
-    hosts:
-      default: ingress
-    port:
-      ingress:
-        default: 80
 
 secrets:
   identity:
@@ -310,9 +304,9 @@ pod:
           runAsUser: 42424
         masakari_host_monitor:
           readOnlyRootFilesystem: false
-          allowPrivilegeEscalation: true
+          allowPrivilegeEscalation: false
           runAsUser: 42424
-        masakari_process_monitir:
+        masakari_process_monitor:
           readOnlyRootFilesystem: false
           allowPrivilegeEscalation: false
           runAsUser: 42424
@@ -578,14 +572,32 @@ conf:
       host_failure_recovery_threads: 1
       masakari_api_workers: 1
       graceful_shutdown_timeout: 5
+    oslo_messaging_rabbit:
+      # -- Durable and quorum queues, which RabbitMQ 4.x requires: it denies
+      ## transient non-exclusive queues, and oslo.messaging declares its RPC,
+      ## notification, reply and fanout queues that way otherwise. Valid on 3.x.
+      amqp_durable_queues: true
+      rabbit_quorum_queue: true
+      rabbit_transient_quorum_queue: true
+      use_queue_manager: true
     keystone_authtoken:
       auth_type: password
       service_type: instance-ha
     database:
       max_retries: -1
+      # -- Database connection URI. When empty the URI is auto-generated
+      ## from endpoints.oslo_db. Set to null to disable auto-generation,
+      ## e.g. when using an operator such as mariadb-operator that supplies
+      ## the connection string via a mounted configuration snippet.
+      connection: ""
+    oslo_concurrency:
+      lock_path: /var/lock
     # Connection string is evaluated though the endpoints for taskflow.
     taskflow:
-      connection: null
+      # -- Taskflow persistence connection URI. When empty the URI is
+      ## auto-generated from endpoints.oslo_db. Set to null to disable
+      ## auto-generation.
+      connection: ""
     wsgi:
       api_paste_config: /etc/masakari/api-paste.ini
   masakarimonitors:
@@ -601,19 +613,12 @@ conf:
       guest_monitor_interval: 10
       guest_monitor_timeout: 5
     host:
-      monitoring_driver: default
-      monitoring_interval: 120
-      monitoring_samples: 1
-      disable_ipmi_checks: true
-      corosync_multicast_ports: 5405
-      pacemaker_node_type: remote
+      monitoring_driver: kubernetes
+    kubernetes:
+      monitoring_node_labels: 'openstack-compute-node=enabled'
   masakari_sudoers: |
     Defaults secure_path="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin:/var/lib/openstack/bin"
     masakari-monitors ALL=(ALL:ALL) NOPASSWD: /var/lib/openstack/bin/privsep-helper
-
-# Note(xuxant): Hooks will break the upgrade for helm2
-# Set to false if using helm2.
-helm3_hook: true
 
 network:
   masakari_api:
@@ -640,9 +645,43 @@ manifests:
   job_rabbit_init: true
   service_api: true
   pdb_api: true
-  # Host Monitors in containers needs pacemaker remote.
+  # Host Monitors default driver is kubernetes
   host_monitor: false
   instance_monitor: false
   process_monitor: false
   introspective_instance_monitor: false
+
+# -- Extra K8s manifests to deploy. Either a list or a map of manifests.
+## Note: Supports use of custom Helm templates
+## Note: Helm replaces (instead of merging) list values when several values
+## files are combined, so if you need to define extraObjects in more than one
+## overrides file, use the map form and make sure the keys are unique across
+## those files. With the list form only the last file takes effect.
+extraObjects: {}
+  # osh_secrets_store:
+  #   apiVersion: secrets-store.csi.x-k8s.io/v1
+  #   kind: SecretProviderClass
+  #   metadata:
+  #     name: osh-secrets-store
+  #   spec:
+  #     provider: aws
+  #     parameters:
+  #       objects: |
+  #         - objectName: "osh"
+  #           objectType: "secretsmanager"
+  #           jmesPath:
+  #               - path: "client_id"
+  #                 objectAlias: "client_id"
+  #               - path: "client_secret"
+  #                 objectAlias: "client_secret"
+  #     secretObjects:
+  #     - data:
+  #       - key: client_id
+  #         objectName: client_id
+  #       - key: client_secret
+  #         objectName: client_secret
+  #       secretName: osh-secrets-store
+  #       type: Opaque
+  #       labels:
+  #         app.kubernetes.io/part-of: osh
 ...

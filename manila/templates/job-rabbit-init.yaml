@@ -13,14 +13,15 @@ limitations under the License.
 */}}
 
 {{- define "metadata.annotations.job.rabbit_init" }}
-{{- if .Values.helm3_hook }}
 helm.sh/hook: post-install,post-upgrade
 helm.sh/hook-weight: "-4"
-{{- end }}
 {{- end }}
 
 {{- if .Values.manifests.job_rabbit_init }}
 {{- $rmqUserJob := dict "envAll" . "serviceName" "manila" "jobAnnotations" (include "metadata.annotations.job.rabbit_init" . | fromYaml) -}}
+{{- if and .Values.tls.oslo_messaging .Values.secrets.tls.client.manila -}}
+{{- $_ := set $rmqUserJob "tlsSecret" .Values.secrets.tls.client.manila -}}
+{{- end -}}
 {{- if .Values.pod.tolerations.manila.enabled -}}
 {{- $_ := set $rmqUserJob "tolerationsEnabled" true -}}
 {{- end -}}

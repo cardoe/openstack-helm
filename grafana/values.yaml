@@ -17,14 +17,14 @@
 ---
 images:
   tags:
-    grafana: docker.io/grafana/grafana:9.2.10
+    grafana: docker.io/grafana/grafana:12.4.2
     mariadb: quay.io/airshipit/mariadb:latest-ubuntu_noble
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
-    db_init: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    grafana_db_session_sync: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_noble
+    db_init: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    grafana_db_session_sync: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
     selenium_tests: quay.io/airshipit/osh-selenium:latest-ubuntu_noble
     image_repo_sync: quay.io/airshipit/docker:27.5.0
-    grafana_image_renderer: docker.io/grafana/grafana-image-renderer:3.10.5
+    grafana_image_renderer: docker.io/grafana/grafana-image-renderer:5.7.3
   pull_policy: IfNotPresent
   local_registry:
     active: false
@@ -232,9 +232,6 @@ endpoints:
       admin:
         username: root
         password: password
-        secret:
-          tls:
-            internal: mariadb-tls-direct
       user:
         username: grafana
         password: password
@@ -253,9 +250,6 @@ endpoints:
       admin:
         username: root
         password: password
-        secret:
-          tls:
-            internal: mariadb-tls-direct
       user:
         username: grafana_session
         password: password
@@ -385,14 +379,6 @@ network:
     node_port:
       enabled: false
       port: 30902
-    ingress:
-      public: true
-      classes:
-        namespace: "ingress-openstack"
-        cluster: "ingress-cluster"
-      annotations:
-        nginx.ingress.kubernetes.io/rewrite-target: /
-        haproxy.org/path-rewrite: /
 
 network_policy:
   grafana:
@@ -411,11 +397,17 @@ secrets:
     admin: grafana-session-db-admin
     user: grafana-session-db-user
   tls:
+    client:
+      grafana: grafana-client
     grafana:
       grafana:
         public: grafana-tls-public
   prometheus:
     user: prometheus-user-creds
+
+tls:
+  oslo_db: false
+  oslo_db_session: false
 
 manifests:
   certificates: false
@@ -423,7 +415,6 @@ manifests:
   configmap_etc: true
   configmap_dashboards: true
   deployment: true
-  ingress: true
   helm_tests: true
   job_db_init: true
   job_db_init_session: true
@@ -435,11 +426,9 @@ manifests:
   secret_db: true
   secret_db_session: true
   secret_admin_creds: true
-  secret_ingress_tls: true
   secret_prom_creds: true
   secret_registry: true
   service: true
-  service_ingress: true
 
 conf:
   ldap:
@@ -513,6 +502,11 @@ conf:
     analytics:
       reporting_enabled: false
       check_for_updates: false
+    remote_cache:
+      type: database
+    auth:
+      login_cookie_name: grafana_sess
+      login_maximum_lifetime_duration: 24h
     auth.ldap:
       enabled: true
       config_file: /etc/grafana/ldap.toml
@@ -522,20 +516,20 @@ conf:
       alerting: /var/lib/grafana/alerting
       csv: /var/lib/grafana/csv
       provisioning: /etc/grafana/provisioning
+    unified_storage:
+      index_path: /var/lib/grafana/unified-search/bleve
     server:
       protocol: http
       http_port: 3000
     database:
       type: mysql
-    session:
-      provider: mysql
-      provider_config: null
-      cookie_name: grafana_sess
-      cookie_secure: false
-      session_life_time: 86400
+      # -- Database connection URL. When empty the URL is auto-generated
+      ## from endpoints.oslo_db. Set to null to disable auto-generation.
+      url: ""
     security:
       admin_user: ${GF_SECURITY_ADMIN_USER}
       admin_password: ${GF_SECURITY_ADMIN_PASSWORD}
+      cookie_secure: false
       cookie_username: grafana_user
       cookie_remember_name: grafana_remember
       login_remember_days: 7
@@ -552,4 +546,38 @@ conf:
     grafana_net:
       url: https://grafana.net
   dashboards: {}
+
+# -- Extra K8s manifests to deploy. Either a list or a map of manifests.
+## Note: Supports use of custom Helm templates
+## Note: Helm replaces (instead of merging) list values when several values
+## files are combined, so if you need to define extraObjects in more than one
+## overrides file, use the map form and make sure the keys are unique across
+## those files. With the list form only the last file takes effect.
+extraObjects: {}
+  # osh_secrets_store:
+  #   apiVersion: secrets-store.csi.x-k8s.io/v1
+  #   kind: SecretProviderClass
+  #   metadata:
+  #     name: osh-secrets-store
+  #   spec:
+  #     provider: aws
+  #     parameters:
+  #       objects: |
+  #         - objectName: "osh"
+  #           objectType: "secretsmanager"
+  #           jmesPath:
+  #               - path: "client_id"
+  #                 objectAlias: "client_id"
+  #               - path: "client_secret"
+  #                 objectAlias: "client_secret"
+  #     secretObjects:
+  #     - data:
+  #       - key: client_id
+  #         objectName: client_id
+  #       - key: client_secret
+  #         objectName: client_secret
+  #       secretName: osh-secrets-store
+  #       type: Opaque
+  #       labels:
+  #         app.kubernetes.io/part-of: osh
 ...

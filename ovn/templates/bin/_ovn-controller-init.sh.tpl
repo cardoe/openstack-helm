@@ -54,15 +54,15 @@ function migrate_ip_from_nic {
   if [[ -n "${ip}" && -n "${prefix}" ]]; then
     ip addr flush dev ${src_nic}
     if [ $? -ne 0 ] ; then
-      ip addr add ${ip}/${prefix} dev ${src_nic}
+      ip addr replace ${ip}/${prefix} dev ${src_nic}
       echo "Error while flushing IP from ${src_nic}."
       exit 1
     fi
 
-    ip addr add ${ip}/${prefix} dev "${bridge_name}"
+    ip addr replace ${ip}/${prefix} dev "${bridge_name}"
     if [ $? -ne 0 ] ; then
       echo "Error assigning IP to bridge "${bridge_name}"."
-      ip addr add ${ip}/${prefix} dev ${src_nic}
+      ip addr replace ${ip}/${prefix} dev ${src_nic}
       exit 1
     fi
   elif [[ -n "${bridge_ip}" && -n "${bridge_prefix}" ]]; then
@@ -135,7 +135,7 @@ fi
 {{- end }}
 
 ovs-vsctl set open . external-ids:ovn-remote="{{ include "helm-toolkit.utils.joinListWithComma" $sb_service_list }}"
-{{- else -}}
+{{- else }}
 ovs-vsctl set open . external-ids:ovn-remote="{{ .Values.conf.ovn_remote }}"
 {{- end }}
 
@@ -145,6 +145,26 @@ ovs-vsctl set open . external-ids:ovn-encap-type="{{ .Values.conf.ovn_encap_type
 ovs-vsctl set open . external-ids:ovn-bridge="{{ .Values.conf.ovn_bridge }}"
 ovs-vsctl set open . external-ids:ovn-bridge-mappings="{{ .Values.conf.ovn_bridge_mappings }}"
 ovs-vsctl set open . external-ids:ovn-monitor-all="{{ .Values.conf.ovn_monitor_all }}"
+
+{{- if .Values.conf.ovn_chassis_mac_mappings }}
+ovs-vsctl set open . external-ids:ovn-chassis-mac-mappings="{{ .Values.conf.ovn_chassis_mac_mappings }}"
+{{- else if .Values.conf.auto_chassis_mac_mappings }}
+# Auto-generate deterministic MAC per provider network based on hostname.
+# Each physnet in ovn-bridge-mappings gets a unique locally-administered
+# unicast MAC derived from a hash of the hostname and physnet name.
+CHASSIS_MAC_MAPPINGS=""
+for mapping in $(echo "{{ .Values.conf.ovn_bridge_mappings }}" | tr "," "\n"); do
+  PHYSNET=$(echo $mapping | cut -d: -f1)
+  HASH=$(echo -n "$(hostname)${PHYSNET}" | md5sum | cut -c1-6)
+  MAC=$(printf "fa:16:3e:%s:%s:%s" ${HASH:0:2} ${HASH:2:2} ${HASH:4:2})
+  if [ -n "$CHASSIS_MAC_MAPPINGS" ]; then
+    CHASSIS_MAC_MAPPINGS="${CHASSIS_MAC_MAPPINGS},${PHYSNET}:${MAC}"
+  else
+    CHASSIS_MAC_MAPPINGS="${PHYSNET}:${MAC}"
+  fi
+done
+ovs-vsctl set open . external-ids:ovn-chassis-mac-mappings="${CHASSIS_MAC_MAPPINGS}"
+{{- end }}
 
 GW_ENABLED=$(cat /tmp/gw-enabled/gw-enabled)
 if [[ ${GW_ENABLED} == {{ .Values.labels.ovn_controller_gw.node_selector_value }} ]]; then

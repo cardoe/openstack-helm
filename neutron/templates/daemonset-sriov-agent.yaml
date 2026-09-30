@@ -76,11 +76,7 @@ spec:
 {{ end }}
       dnsPolicy: ClusterFirstWithHostNet
       hostNetwork: true
-      {{- if or ( gt .Capabilities.KubeVersion.Major "1" ) ( ge .Capabilities.KubeVersion.Minor "10" ) }}
       shareProcessNamespace: true
-      {{- else }}
-      hostPID: true
-      {{- end }}
       initContainers:
 {{ tuple $envAll "pod_dependency" $mounts_neutron_sriov_agent_init | include "helm-toolkit.snippets.kubernetes_entrypoint_init_container" | indent 8 }}
         - name: neutron-sriov-agent-init
@@ -163,6 +159,8 @@ spec:
               name: host-sys-devices
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: {{ .Values.conf.neutron.oslo_concurrency.lock_path }}
             - name: pod-var-neutron
               mountPath: {{ .Values.conf.neutron.DEFAULT.state_path }}
             - name: neutron-bin
@@ -225,7 +223,7 @@ spec:
             {{- end }}
             - name: run
               mountPath: /run
-{{- dict "enabled" $envAll.Values.manifests.certificates "name" $envAll.Values.endpoints.oslo_messaging.auth.admin.secret.tls.internal "path" "/etc/rabbitmq/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
+{{- dict "enabled" $envAll.Values.tls.oslo_messaging "name" "client-certs" "path" "/etc/rabbitmq/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
 {{ if $mounts_neutron_sriov_agent.volumeMounts }}{{ toYaml $mounts_neutron_sriov_agent.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: host-sys-class-net
@@ -235,6 +233,8 @@ spec:
           hostPath:
             path: /sys/devices
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: pod-var-neutron
           emptyDir: {}
@@ -248,16 +248,18 @@ spec:
           secret:
             secretName: {{ $configMapName }}
             defaultMode: 0444
-{{- if $etcSources }}
         - name: neutron-etc-snippets
+{{- if $etcSources }}
           projected:
             sources:
 {{ toYaml $etcSources | indent 14 }}
+{{- else }}
+          emptyDir: {}
 {{ end }}
         - name: run
           hostPath:
             path: /run
-{{- dict "enabled" $envAll.Values.manifests.certificates "name" $envAll.Values.endpoints.oslo_messaging.auth.admin.secret.tls.internal | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
+{{- dict "enabled" (or $envAll.Values.tls.oslo_db $envAll.Values.tls.oslo_messaging) "name" "client-certs" "secretName" $envAll.Values.secrets.tls.client.neutron | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
 {{ if $mounts_neutron_sriov_agent.volumes }}{{ toYaml $mounts_neutron_sriov_agent.volumes | indent 8 }}{{ end }}
 {{- end }}
 {{- end }}

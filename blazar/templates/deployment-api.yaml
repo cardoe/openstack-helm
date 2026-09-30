@@ -81,14 +81,9 @@ spec:
               value: "/etc/blazar/certs/ca.crt"
 {{- end }}
           command:
-            - /tmp/blazar-api.sh
-            - start
-          lifecycle:
-            preStop:
-              exec:
-                command:
-                  - /tmp/blazar-api.sh
-                  - stop
+            - blazar-api
+            - --config-file
+            - /etc/blazar/blazar.conf
           ports:
             - name: b-api
               containerPort: {{ tuple "reservation" "service" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
@@ -97,12 +92,10 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: {{ .Values.conf.blazar.oslo_concurrency.lock_path }}
             - name: pod-etc-blazar
               mountPath: /etc/blazar
-            - name: blazar-bin
-              mountPath: /tmp/blazar-api.sh
-              subPath: blazar-api.sh
-              readOnly: true
             - name: blazar-etc
               mountPath: /etc/blazar/blazar.conf
               subPath: blazar.conf
@@ -124,12 +117,14 @@ spec:
               mountPath: /etc/blazar/policy.yaml
               subPath: policy.yaml
               readOnly: true
-{{- dict "enabled" .Values.manifests.certificates "name" .Values.endpoints.oslo_db.auth.admin.secret.tls.internal "path" "/etc/mysql/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
+{{- dict "enabled" .Values.tls.oslo_db "name" "client-certs" "path" "/etc/mysql/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
 {{- dict "enabled" (or .Values.manifests.certificates .Values.tls.identity) "name" .Values.secrets.tls.reservation.api.internal "path" "/etc/blazar/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
-{{- dict "enabled" $envAll.Values.manifests.certificates "name" $envAll.Values.endpoints.oslo_messaging.auth.admin.secret.tls.internal "path" "/etc/rabbitmq/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
+{{- dict "enabled" $envAll.Values.tls.oslo_messaging "name" "client-certs" "path" "/etc/rabbitmq/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
 {{ if $mounts_blazar_api.volumeMounts }}{{ toYaml $mounts_blazar_api.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: pod-etc-blazar
           emptyDir: {}
@@ -146,9 +141,8 @@ spec:
             sources:
               - secret:
                   name: blazar-ks-etc
-{{- dict "enabled" .Values.manifests.certificates "name" .Values.endpoints.oslo_db.auth.admin.secret.tls.internal | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
+{{- dict "enabled" (or .Values.tls.oslo_db .Values.tls.oslo_messaging) "name" "client-certs" "secretName" .Values.secrets.tls.client.blazar | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
 {{- dict "enabled" (or .Values.manifests.certificates .Values.tls.identity) "name" .Values.secrets.tls.reservation.api.internal | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
-{{- dict "enabled" $envAll.Values.manifests.certificates "name" $envAll.Values.endpoints.oslo_messaging.auth.admin.secret.tls.internal | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
 {{ if $mounts_blazar_api.volumes }}{{ toYaml $mounts_blazar_api.volumes | indent 8 }}{{ end }}
 {{- end }}
 ...

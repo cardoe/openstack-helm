@@ -21,6 +21,24 @@ exec:
     - ovn-controller
 {{- end }}
 
+{{- define "controllerLivenessProbeTemplate" }}
+exec:
+  command:
+    - /bin/bash
+    - -c
+    - |
+      # ovn-controller process must be responsive to appctl
+      ovs-appctl -t ovn-controller version >/dev/null 2>&1 || exit 1
+      # ovn-controller's OpenFlow session to br-int can wedge into a
+      # permanent EACCES reconnect loop against br-int.mgmt (e.g. after the
+      # socket gets recreated with different ownership than the
+      # unprivileged OVS_USER_ID ovn-controller actually runs as). Run the
+      # check as that same user rather than root: as root, "ovs-ofctl show
+      # br-int" bypasses the unix-socket permission check entirely and
+      # stays green even while ovn-controller is wedged.
+      su -s /bin/sh {{ .Values.conf.ovs_user_name }} -c "ovs-ofctl --timeout=5 show br-int" >/dev/null 2>&1 || exit 1
+{{- end }}
+
 {{- define "ovn.daemonset" }}
 {{- $daemonset := index . 0 }}
 {{- $configMapName := index . 1 }}
@@ -111,6 +129,7 @@ spec:
             - /root/ovnkube.sh
             - ovn-controller
 {{ dict "envAll" . "component" "ovn_controller" "container" "controller" "type" "readiness" "probeTemplate" (include "controllerReadinessProbeTemplate" . | fromYaml) | include "helm-toolkit.snippets.kubernetes_probe" | indent 10 }}
+{{ dict "envAll" . "component" "ovn_controller" "container" "controller" "type" "liveness" "probeTemplate" (include "controllerLivenessProbeTemplate" . | fromYaml) | include "helm-toolkit.snippets.kubernetes_probe" | indent 10 }}
           env:
             - name: OVS_USER_ID
               value: {{ .Values.conf.ovs_user_name }}
@@ -146,8 +165,9 @@ spec:
 {{ tuple $envAll $envAll.Values.pod.resources.ovn_logging_parser | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
 {{ dict "envAll" $envAll "application" "ovn_controller" "container" "ovn_logging_parser" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
           command:
-            - /tmp/ovn-network-logging-parser.sh
-            - start
+            - uwsgi
+            - --ini
+            - /etc/neutron/neutron-ovn-network-logging-parser-uwsgi.ini
           env:
             - name: VECTOR_HTTP_ENDPOINT
               value: http://localhost:5001
@@ -159,10 +179,6 @@ spec:
             - name: neutron-etc
               mountPath: /etc/neutron/neutron.conf
               subPath: neutron.conf
-              readOnly: true
-            - name: ovn-bin
-              mountPath: /tmp/ovn-network-logging-parser.sh
-              subPath: ovn-network-logging-parser.sh
               readOnly: true
             - name: ovn-etc
               mountPath: /etc/neutron/neutron-ovn-network-logging-parser-uwsgi.ini

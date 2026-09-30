@@ -16,10 +16,10 @@
 - project:
     vars:
       # shared across all jobs
-      helm_version: "3.18.1"
+      helm_version: "4.2.4"
       chart_testing_version: "3.11.0"
       virtualenv: "{{ ansible_user_dir }}/venv"
-      base_version: "2025.2.0"
+      base_version: "2026.1.0"
 
     templates:
       - publish-openstack-docs-pti
@@ -29,53 +29,42 @@
         - openstack-helm-linter
         - openstack-helm-pre-commit
         - openstack-helm-bandit
-        # 2024.2
-        - openstack-helm-cinder-2024-2-ubuntu_jammy  # 3 nodes rook
-        - openstack-helm-compute-kit-2024-2-ubuntu_jammy  # 1 node + 3 nodes
-        # 2025.1 Ubuntu Jammy
-        - openstack-helm-cinder-2025-1-ubuntu_jammy  # 3 nodes rook
-        - openstack-helm-compute-kit-2025-1-ubuntu_jammy  # 1 node + 3 nodes
-        - openstack-helm-octavia-2025-1-ubuntu_jammy  # 4 nodes
-        - openstack-helm-blazar-2025-1-ubuntu_jammy  # 3 nodes; run only if blazar changed
-        - openstack-helm-cloudkitty-2025-1-ubuntu_jammy  # 3 nodes; run only if cloudkitty changed
-        - openstack-helm-freezer-2025-1-ubuntu_jammy  # 3 nodes; run only if freezer changed
-        - openstack-helm-zaqar-2025-1-ubuntu_jammy  # 3 nodes; run only if zaqar changed
-        # TODO: Configure Cilium not to setup it's own overlay and
-        # use existing VXLAN overlay interface for internal K8s communication
-        # - openstack-helm-compute-kit-cilium-2025-1-ubuntu_jammy  # 1 node + 3 nodes
-        - openstack-helm-horizon-2025-1-ubuntu_jammy  # 1 node
-        - openstack-helm-compute-kit-dpdk-2025-1-ubuntu_jammy  # 32GB node
+        - openstack-helm-build-charts
         # 2025.1 Ubuntu Noble
-        - openstack-helm-cinder-2025-1-ubuntu_noble  # 5 nodes rook
-        - openstack-helm-compute-kit-2025-1-ubuntu_noble  # 1 node + 3 nodes
+        - openstack-helm-compute-kit-2025-1-ubuntu_noble  # 5 nodes; rook, cinder, glance, heat, nova, neutron (ovs), placement
         # 2025.2 Ubuntu Noble
-        - openstack-helm-cinder-2025-2-ubuntu_noble  # 5 nodes rook
-        - openstack-helm-compute-kit-2025-2-ubuntu_noble  # 1 node + 3 nodes
-        - openstack-helm-compute-kit-ovn-2025-2-ubuntu_noble  # 1 node + 3 nodes
-        - openstack-helm-skyline-2025-2-ubuntu_noble  # 3 nodes
-        - openstack-helm-trove-2025-2-ubuntu_noble  # 5 nodes rook
-        - openstack-helm-swift-2025-2-ubuntu_noble  # 3 nodes
+        - openstack-helm-compute-kit-2025-2-ubuntu_noble  # 5 nodes; rook, cinder, glance, heat, nova, neutron (ovs), placement
+        # 2026.1 Ubuntu Noble
+        - openstack-helm-compute-kit-2026-1-ubuntu_noble  # 5 nodes; rook, cinder, glance, heat, nova, neutron (ovs), placement
+        # TLS everywhere: gateway API + in-pod nginx sidecars, mariadb and
+        # rabbitmq mTLS. Deploys the compute kit plus ceph, cinder and horizon,
+        # all behind TLS sidecars.
+        - openstack-helm-tls-2026-1-ubuntu_noble  # 5 nodes rook, cinder, glance, heat, nova, neutron (ovs), placement
+        - openstack-helm-ovn-2026-1-ubuntu_noble  # 3 nodes glance, heat, nova, neutron (ovn), placement
+        - openstack-helm-dpdk-2026-1-ubuntu_noble  # 32GB node; run only if neutron, nova or openvswitch changed
+        - openstack-helm-crd-2026-1-ubuntu_noble  # 5 nodes; same as compute-kit but with OSH controllers
+        - openstack-helm-operators-2026-1-ubuntu_noble  # 5 nodes; same as compute-kit with third-party operators
+        - openstack-helm-octavia-2026-1-ubuntu_noble  # 4 nodes; glance, heat, nova, neutron (ovs), placement, octavia
+        - openstack-helm-blazar-2026-1-ubuntu_noble  # 3 nodes; run only if blazar changed
+        - openstack-helm-cloudkitty-2026-1-ubuntu_noble  # 3 nodes; run only if cloudkitty changed
+        - openstack-helm-freezer-2026-1-ubuntu_noble  # 3 nodes; run only if freezer changed
+        - openstack-helm-horizon-2026-1-ubuntu_noble  # 1 node; run only if horizon changed
+        - openstack-helm-manila-2026-1-ubuntu_noble  # 5 nodes; run only if manila changed
+        - openstack-helm-skyline-2026-1-ubuntu_noble  # 3 nodes; run only if skyline changed
+        - openstack-helm-swift-2026-1-ubuntu_noble  # 3 nodes; run only if swift changed
+        - openstack-helm-tacker-2026-1-ubuntu_noble  # 3 nodes; run only if tacker changed
+        - openstack-helm-trove-2026-1-ubuntu_noble  # 5 nodes; run only if trove changed
+        - openstack-helm-zaqar-2026-1-ubuntu_noble  # 3 nodes; run only if zaqar changed
         # Infra jobs
         - openstack-helm-logging
         - openstack-helm-monitoring
-        - openstack-helm-metacontroller
     gate:
       jobs:
         - openstack-helm-linter
-        - openstack-helm-cinder-2025-1-ubuntu_jammy
-        - openstack-helm-compute-kit-2025-1-ubuntu_jammy
-        # - openstack-helm-logging
-        # - openstack-helm-monitoring
-        - openstack-helm-metacontroller
+        - openstack-helm-compute-kit-2026-1-ubuntu_noble
+        - openstack-helm-logging
+        - openstack-helm-monitoring
     post:
       jobs:
         - openstack-helm-publish-charts
-    periodic:
-      jobs:
-        - openstack-helm-compute-kit-helm-repo-public-2025-1-ubuntu_jammy  # 1 node + 3 nodes
-        - openstack-helm-watcher-2025-1-ubuntu_jammy  # 3 nodes
-        - openstack-helm-blazar-2025-1-ubuntu_jammy  # 3 nodes
-        - openstack-helm-cloudkitty-2025-1-ubuntu_jammy  # 3 nodes
-        - openstack-helm-freezer-2025-1-ubuntu_jammy  # 3 nodes
-        - openstack-helm-tacker-2025-1-ubuntu_jammy  # 3 nodes
 ...

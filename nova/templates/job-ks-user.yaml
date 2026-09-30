@@ -18,17 +18,18 @@ helm.sh/hook-weight: "-1"
 {{- end }}
 
 {{- if .Values.manifests.job_ks_user }}
-{{- $serviceUsers := (tuple "nova" "neutron" "placement" "ironic" "cinder") -}}
+{{- $serviceUsers := (tuple "nova" "neutron" "placement" "cinder") -}}
 {{- if .Values.conf.nova.service_user.send_service_user_token }}
 {{- $serviceUsers = append $serviceUsers "service" -}}
 {{- end }}
-{{- $ksUserJob := dict "envAll" . "serviceName" "nova" "serviceUsers" $serviceUsers -}}
-{{- if or .Values.manifests.certificates .Values.tls.identity -}}
-{{- $_ := set $ksUserJob "tlsSecret" .Values.secrets.tls.compute.osapi.internal -}}
-{{- end -}}
-{{- if .Values.helm3_hook }}
-{{- $_ := set $ksUserJob "jobAnnotations" (include "metadata.annotations.job.ks_user" . | fromYaml) -}}
+{{- if .Values.manifests.statefulset_compute_ironic }}
+{{- $serviceUsers = append $serviceUsers "ironic" -}}
 {{- end }}
+{{- $ksUserJob := dict "envAll" . "serviceName" "nova" "serviceUsers" $serviceUsers -}}
+{{- if .Values.secrets.tls.ca -}}
+{{- $_ := set $ksUserJob "tlsSecret" .Values.secrets.tls.ca -}}
+{{- end -}}
+{{- $_ := set $ksUserJob "jobAnnotations" (include "metadata.annotations.job.ks_user" . | fromYaml) -}}
 {{- if .Values.pod.tolerations.nova.enabled -}}
 {{- $_ := set $ksUserJob "tolerationsEnabled" true -}}
 {{- end -}}

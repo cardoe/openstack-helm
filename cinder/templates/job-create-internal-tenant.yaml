@@ -29,10 +29,8 @@ kind: Job
 metadata:
   name: {{ printf "%s-%s" $serviceUserPretty "create-internal-tenant" | quote }}
   annotations:
-{{- if .Values.helm3_hook }}
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-delete-policy": before-hook-creation
-{{- end }}
     {{- tuple "cinder-create-internal-tenant" $envAll | include "helm-toolkit.snippets.custom_job_annotations" | nindent 4 }}
   labels:
 {{ tuple $envAll "cinder" "create-internal-tenant" | include "helm-toolkit.snippets.kubernetes_metadata_labels" | indent 4 }}
@@ -69,9 +67,9 @@ spec:
               mountPath: /tmp/create-internal-tenant.sh
               subPath: create-internal-tenant.sh
               readOnly: true
-{{- dict "enabled" (or .Values.manifests.certificates .Values.tls.identity) "name" .Values.secrets.tls.volumev3.api.internal | include "helm-toolkit.snippets.tls_volume_mount"  | indent 12 }}
+{{- dict "enabled" (not (empty .Values.secrets.tls.ca)) "name" .Values.secrets.tls.ca | include "helm-toolkit.snippets.tls_volume_mount"  | indent 12 }}
           env:
-{{- with $env := dict "ksUserSecret" $envAll.Values.secrets.identity.admin "useCA" (or .Values.manifests.certificates .Values.tls.identity) }}
+{{- with $env := dict "ksUserSecret" $envAll.Values.secrets.identity.admin "useCA" (not (empty .Values.secrets.tls.ca)) "envAll" $envAll }}
 {{- include "helm-toolkit.snippets.keystone_openrc_env_vars" $env | indent 12 }}
 {{- end }}
             - name: SERVICE_OS_SERVICE_NAME
@@ -81,7 +79,7 @@ spec:
             - name: INTERNAL_USER_NAME
               value: {{ .Values.conf.cinder.DEFAULT.internal_user_name | quote }}
 
-{{- with $env := dict "ksUserSecret" (index $envAll.Values.secrets.identity $serviceUser ) }}
+{{- with $env := dict "ksUserSecret" (index $envAll.Values.secrets.identity $serviceUser ) "envAll" $envAll }}
 {{- include "helm-toolkit.snippets.keystone_user_create_env_vars" $env | indent 12 }}
 {{- end }}
             - name: SERVICE_OS_ROLES
@@ -98,5 +96,5 @@ spec:
           configMap:
             name: {{ $configMapBin | quote }}
             defaultMode: 0555
-{{- dict "enabled" (or .Values.manifests.certificates .Values.tls.identity) "name" .Values.secrets.tls.volumev3.api.internal | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
+{{- dict "enabled" (not (empty .Values.secrets.tls.ca)) "name" .Values.secrets.tls.ca | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
 {{- end -}}

@@ -12,11 +12,48 @@ At this point we assume all the prerequisites listed below are met:
 - The OpenStack-Helm repositories are enabled, OpenStack-Helm
   plugin is installed and necessary environment variables are set.
 - The ``openstack`` namespace is created.
-- Ingress controller is deployed in the ``openstack`` namespace.
-- MetalLB is deployed and configured. The service of type
-  ``LoadBalancer`` is created and DNS is configured to resolve the
-  Openstack endpoint names to the IP address of the service.
+- MetalLB is deployed. A Gateway API controller is installed and a
+  ``Gateway`` resource is created. The controller will provision a
+  ``LoadBalancer`` service automatically. DNS is configured to resolve
+  the OpenStack endpoint names to the external IP of that service.
+  We recommend `Envoy Gateway`_ as the Gateway API implementation.
 - Ceph is deployed and enabled for using by OpenStack-Helm.
+
+.. _Envoy Gateway: https://gateway.envoyproxy.io/
+
+.. note::
+
+    The recommended way to expose OpenStack services externally is through
+    the `Kubernetes Gateway API`_. The gateway controller (e.g. Envoy Gateway)
+    is deployed in its own namespace (``envoy-gateway-system`` for Envoy Gateway)
+    and creates a ``LoadBalancer`` service backed by MetalLB. Traffic is routed
+    to backend services via ``HTTPRoute`` resources.
+
+    OpenStack-Helm charts no longer ship ``Ingress`` templates nor the
+    auxiliary ``Service`` resources (and TLS secrets) that used to back them.
+    Charts now only deploy the applications themselves and their ClusterIP
+    ``Service`` objects. How exactly the services are exposed outside the
+    cluster is entirely up to the user, since it depends heavily on the
+    particular environment and use case.
+
+    The way to expose a service is to provide the necessary objects via the
+    ``.Values.extraObjects`` field available in all OpenStack-Helm charts.
+    This accepts arbitrary manifests (rendered as Helm templates) that are
+    deployed together with the chart, either as a list or as a map of named
+    manifests. Use it to add ``HTTPRoute`` and ``BackendTLSPolicy`` objects
+    when exposing services through the Gateway API, or, if you prefer the
+    legacy approach, an ``Ingress`` object and its accompanying ``Service``.
+    For Gateway API examples see ``values_overrides/<chart>/gateway.yaml``
+    (e.g. ``values_overrides/nova/gateway.yaml`` and
+    ``values_overrides/keystone/gateway-tls.yaml``).
+
+    Prefer the map form whenever more than one values file contributes
+    objects. Helm merges maps but *replaces* lists, so two ``--values`` files
+    that both define ``extraObjects`` as a list silently drop each other's
+    objects — only the last one takes effect. With a map, each file just needs
+    keys that are unique across the set of files.
+
+.. _Kubernetes Gateway API: https://gateway-api.sigs.k8s.io/
 
 .. _kubectl: https://kubernetes.io/docs/tasks/tools/install-kubectl/
 .. _helm: https://helm.sh/docs/intro/install/
@@ -404,9 +441,10 @@ which is then used for ssh access to VMs. Or it could be Heat templates
 which you prepare in advance and then use with Openstack client.
 
 For convenience, you can create an executable entry point that runs the
-Openstack client in a Docker container. See for example `setup-client.sh`_.
+Openstack client in a Docker container. See for example the `setup-client`_
+Ansible task file which is used in the OpenStack-Helm CI jobs.
 
-.. _setup-client.sh: https://opendev.org/openstack/openstack-helm/src/branch/master/tools/deployment/common/setup-client.sh
+.. _setup-client: https://opendev.org/openstack/openstack-helm/src/branch/master/roles/deploy-charts/tasks/setup-client.yaml
 .. _quay.io/airshipit/openstack-client: https://quay.io/repository/airshipit/openstack-client?tab=tags&tag=latest
 
 

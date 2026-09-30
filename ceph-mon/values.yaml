@@ -23,12 +23,12 @@ deployment:
 images:
   pull_policy: IfNotPresent
   tags:
-    ceph_bootstrap: 'quay.io/airshipit/ceph-daemon:ubuntu_jammy_20.2.0-1-20260116'
-    ceph_config_helper: 'quay.io/airshipit/ceph-config-helper:ubuntu_jammy_20.2.0-1-20260116'
-    ceph_mon: 'quay.io/airshipit/ceph-daemon:ubuntu_jammy_20.2.0-1-20260116'
-    ceph_mgr: 'quay.io/airshipit/ceph-daemon:ubuntu_jammy_20.2.0-1-20260116'
-    ceph_mon_check: 'quay.io/airshipit/ceph-config-helper:ubuntu_jammy_20.2.0-1-20260116'
-    dep_check: 'quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy'
+    ceph_bootstrap: 'quay.io/airshipit/ceph-daemon:ubuntu_noble_20.2.4-1-20260902'
+    ceph_config_helper: 'quay.io/airshipit/ceph-config-helper:ubuntu_noble_20.2.4-1-20260902'
+    ceph_mon: 'quay.io/airshipit/ceph-daemon:ubuntu_noble_20.2.4-1-20260902'
+    ceph_mgr: 'quay.io/airshipit/ceph-daemon:ubuntu_noble_20.2.4-1-20260902'
+    ceph_mon_check: 'quay.io/airshipit/ceph-config-helper:ubuntu_noble_20.2.4-1-20260902'
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_noble
     image_repo_sync: 'quay.io/airshipit/docker:27.5.0'
   local_registry:
     active: false
@@ -337,6 +337,9 @@ conf:
     # and only restart them if necessary. Set this value to "true" to restart
     # mons unconditionally.
     unconditional_mon_restart: "false"
+    # Set this to "true" to disrupt mon quorum and restart them all at once
+    # (Can be useful for stubborn upgrades that won't let upgraded mons re-join)
+    disruptive_mon_restart: "false"
 
 daemonset:
   prefix_name: "mon"
@@ -527,4 +530,38 @@ manifests:
   service_mon_discovery: true
   job_storage_admin_keys: true
   secret_registry: true
+
+# -- Extra K8s manifests to deploy. Either a list or a map of manifests.
+## Note: Supports use of custom Helm templates
+## Note: Helm replaces (instead of merging) list values when several values
+## files are combined, so if you need to define extraObjects in more than one
+## overrides file, use the map form and make sure the keys are unique across
+## those files. With the list form only the last file takes effect.
+extraObjects: {}
+  # osh_secrets_store:
+  #   apiVersion: secrets-store.csi.x-k8s.io/v1
+  #   kind: SecretProviderClass
+  #   metadata:
+  #     name: osh-secrets-store
+  #   spec:
+  #     provider: aws
+  #     parameters:
+  #       objects: |
+  #         - objectName: "osh"
+  #           objectType: "secretsmanager"
+  #           jmesPath:
+  #               - path: "client_id"
+  #                 objectAlias: "client_id"
+  #               - path: "client_secret"
+  #                 objectAlias: "client_secret"
+  #     secretObjects:
+  #     - data:
+  #       - key: client_id
+  #         objectName: client_id
+  #       - key: client_secret
+  #         objectName: client_secret
+  #       secretName: osh-secrets-store
+  #       type: Opaque
+  #       labels:
+  #         app.kubernetes.io/part-of: osh
 ...

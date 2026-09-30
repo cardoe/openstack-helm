@@ -24,6 +24,7 @@ limitations under the License.
 {{- $mounts_octavia_health_manager := .Values.pod.mounts.octavia_health_manager.octavia_health_manager }}
 {{- $mounts_octavia_health_manager_init := .Values.pod.mounts.octavia_health_manager.init_container }}
 
+{{- $etcSources := .Values.pod.etcSources.octavia_health_manager }}
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -50,6 +51,7 @@ spec:
 {{ tuple "octavia_health_manager" . | include "helm-toolkit.snippets.kubernetes_pod_priority_class" | indent 6 }}
 {{ tuple "octavia_health_manager" . | include "helm-toolkit.snippets.kubernetes_pod_runtime_class" | indent 6 }}
       serviceAccountName: {{ $serviceAccountName }}
+{{ dict "envAll" $envAll "application" "octavia_health_manager" | include "helm-toolkit.snippets.kubernetes_pod_security_context" | indent 6 }}
       dnsPolicy: ClusterFirstWithHostNet
       hostNetwork: true
       hostPID: true
@@ -61,7 +63,7 @@ spec:
 {{ tuple $envAll "octavia_health_manager_init" | include "helm-toolkit.snippets.image" | indent 10 }}
 {{ tuple $envAll $envAll.Values.pod.resources.health_manager | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
           env:
-{{- with $env := dict "ksUserSecret" ( index $envAll.Values.secrets.identity "admin" ) }}
+{{- with $env := dict "ksUserSecret" ( index $envAll.Values.secrets.identity "admin" ) "envAll" $envAll }}
 {{- include "helm-toolkit.snippets.keystone_openrc_env_vars" $env | indent 12 }}
 {{- end }}
           command:
@@ -103,6 +105,8 @@ spec:
                   - /tmp/octavia-health-manager.sh
                   - stop
           volumeMounts:
+            - name: oslo-lock-path
+              mountPath: {{ .Values.conf.octavia.oslo_concurrency.lock_path }}
             - name: pod-etc-octavia
               mountPath: /etc/octavia
             - name: octavia-bin
@@ -113,6 +117,9 @@ spec:
               mountPath: /etc/octavia/octavia.conf
               subPath: octavia.conf
               readOnly: true
+            - name: octavia-etc-snippets
+              mountPath: /etc/octavia/octavia.conf.d/
+              readOnly: true
             {{- if .Values.conf.octavia.DEFAULT.log_config_append }}
             - name: octavia-etc
               mountPath: {{ .Values.conf.octavia.DEFAULT.log_config_append }}
@@ -121,6 +128,8 @@ spec:
             {{- end }}
 {{ if $mounts_octavia_health_manager.volumeMounts }}{{ toYaml $mounts_octavia_health_manager.volumeMounts | indent 12 }}{{ end }}
       volumes:
+        - name: oslo-lock-path
+          emptyDir: {}
         - name: pod-etc-octavia
           emptyDir: {}
         - name: octavia-bin
@@ -131,6 +140,14 @@ spec:
           secret:
             secretName: {{ $configMapName }}
             defaultMode: 0444
+        - name: octavia-etc-snippets
+{{- if $etcSources }}
+          projected:
+            sources:
+{{ toYaml $etcSources | indent 14 }}
+{{- else }}
+          emptyDir: {}
+{{ end }}
         - name: pod-shared
           emptyDir: {}
         - name: run

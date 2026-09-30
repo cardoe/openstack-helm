@@ -60,31 +60,26 @@ spec:
           securityContext:
             runAsUser: {{ .Values.pod.user.mistral.uid }}
           command:
-            - /tmp/mistral-api.sh
-            - start
-          lifecycle:
-            preStop:
-              exec:
-                command:
-                  - /tmp/mistral-api.sh
-                  - stop
+            - mistral-server
+            - --server
+            - api
+            - --config-file
+            - /etc/mistral/mistral.conf
           ports:
             - name: w-api
               containerPort: {{ tuple "workflowv2" "internal" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
           readinessProbe:
             httpGet:
-              scheme: {{ tuple "workflowv2" "internal" "api" . | include "helm-toolkit.endpoints.keystone_endpoint_scheme_lookup" | upper }}
+              scheme: {{ tuple "workflowv2" "service" "api" . | include "helm-toolkit.endpoints.keystone_endpoint_scheme_lookup" | upper }}
               path: /
-              port: {{ tuple "workflowv2" "internal" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
+              port: {{ tuple "workflowv2" "service" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: {{ .Values.conf.mistral.oslo_concurrency.lock_path }}
             - name: pod-etc-mistral
               mountPath: /etc/mistral
-            - name: mistral-bin
-              mountPath: /tmp/mistral-api.sh
-              subPath: mistral-api.sh
-              readOnly: true
             - name: mistral-etc
               mountPath: /etc/mistral/mistral.conf
               subPath: mistral.conf
@@ -102,6 +97,8 @@ spec:
 {{ if $mounts_mistral_api.volumeMounts }}{{ toYaml $mounts_mistral_api.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: pod-etc-mistral
           emptyDir: {}

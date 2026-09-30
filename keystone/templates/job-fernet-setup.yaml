@@ -21,6 +21,8 @@ limitations under the License.
 
 {{- $serviceAccountName := "keystone-fernet-setup" }}
 {{ tuple $envAll "fernet_setup" $serviceAccountName | include "helm-toolkit.snippets.kubernetes_pod_rbac_serviceaccount" }}
+
+{{- $etcSources := .Values.pod.etcSources.keystone_fernet_setup }}
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
@@ -57,11 +59,9 @@ metadata:
   labels:
 {{ tuple $envAll "keystone" "fernet-setup" | include "helm-toolkit.snippets.kubernetes_metadata_labels" | indent 4 }}
   annotations:
-{{- if .Values.helm3_hook }}
     "helm.sh/hook": post-install,post-upgrade
     "helm.sh/hook-weight": "-5"
     "helm.sh/hook-delete-policy": before-hook-creation
-{{- end }}
 {{ tuple "keystone_fernet_setup" $envAll | include "helm-toolkit.snippets.custom_job_annotations" | indent 4 }}
 spec:
   template:
@@ -100,6 +100,8 @@ spec:
               value: {{ .Release.Namespace | quote }}
             - name: KEYSTONE_KEYS_REPOSITORY
               value: {{ .Values.conf.keystone.fernet_tokens.key_repository | quote }}
+            - name: CUSTOM_SECRET_ANNOTATIONS
+              value: {{ tuple "identity" "fernet" $envAll | include "helm-toolkit.snippets.custom_secret_annotations" | fromYaml | toJson | quote }}
           command:
             - python
             - /tmp/fernet-manage.py
@@ -114,6 +116,9 @@ spec:
             - name: keystone-etc
               mountPath: /etc/keystone/keystone.conf
               subPath: keystone.conf
+              readOnly: true
+            - name: keystone-etc-snippets
+              mountPath: /etc/keystone/keystone.conf.d/
               readOnly: true
             {{- if .Values.conf.keystone.DEFAULT.log_config_append }}
             - name: keystone-etc
@@ -137,6 +142,14 @@ spec:
           secret:
             secretName: keystone-etc
             defaultMode: 0444
+        - name: keystone-etc-snippets
+{{- if $etcSources }}
+          projected:
+            sources:
+{{ toYaml $etcSources | indent 14 }}
+{{- else }}
+          emptyDir: {}
+{{ end }}
         - name: keystone-bin
           configMap:
             name: keystone-bin

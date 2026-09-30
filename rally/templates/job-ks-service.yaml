@@ -28,10 +28,8 @@ metadata:
   name: rally-ks-service
   annotations:
     {{ tuple $envAll | include "helm-toolkit.snippets.release_uuid" }}
-{{- if .Values.helm3_hook }}
     helm.sh/hook: post-install,post-upgrade
     helm.sh/hook-weight: "-2"
-{{- end }}
 spec:
   template:
     metadata:
@@ -60,7 +58,7 @@ spec:
               readOnly: true
 {{ dict "enabled" (ne $tlsSecret "") "name" $tlsSecret | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
           env:
-{{- with $env := dict "ksUserSecret" $envAll.Values.secrets.identity.admin "useCA" (ne $tlsSecret "") }}
+{{- with $env := dict "ksUserSecret" $envAll.Values.secrets.identity.admin "useCA" (ne $tlsSecret "") "envAll" $envAll }}
 {{- include "helm-toolkit.snippets.keystone_openrc_env_vars" $env | indent 12 }}
 {{- end }}
             - name: OS_SERVICE_NAME

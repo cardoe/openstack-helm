@@ -27,6 +27,8 @@ httpGet:
 
 {{- $serviceAccountName := "keystone-api" }}
 {{ tuple $envAll "api" $serviceAccountName | include "helm-toolkit.snippets.kubernetes_pod_rbac_serviceaccount" }}
+
+{{- $etcSources := .Values.pod.etcSources.keystone_api }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -89,6 +91,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: {{ .Values.conf.keystone.oslo_concurrency.lock_path }}
             - name: etckeystone
               mountPath: /etc/keystone
             - name: logs-apache
@@ -102,6 +106,9 @@ spec:
             - name: keystone-etc
               mountPath: /etc/keystone/keystone.conf
               subPath: keystone.conf
+              readOnly: true
+            - name: keystone-etc-snippets
+              mountPath: /etc/keystone/keystone.conf.d/
               readOnly: true
             - name: keystone-etc
               mountPath: /etc/apache2/ports.conf
@@ -155,13 +162,17 @@ spec:
 {{- end }}
             - name: keystone-credential-keys
               mountPath: {{ .Values.conf.keystone.credential.key_repository }}
-{{- dict "enabled" .Values.tls.oslo_db "name" .Values.endpoints.oslo_db.auth.admin.secret.tls.internal "path" "/etc/mysql/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
-{{- dict "enabled" .Values.tls.identity "name" .Values.secrets.tls.identity.api.internal "path" "/etc/keystone/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
-{{- dict "enabled" $envAll.Values.tls.oslo_messaging "name" $envAll.Values.endpoints.oslo_messaging.auth.admin.secret.tls.internal "path" "/etc/rabbitmq/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
+{{- dict "enabled" .Values.tls.oslo_db "name" "client-certs" "path" "/etc/mysql/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
+{{- dict "enabled" $envAll.Values.tls.oslo_messaging "name" "client-certs" "path" "/etc/rabbitmq/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
 
 {{ if $mounts_keystone_api.volumeMounts }}{{ toYaml $mounts_keystone_api.volumeMounts | indent 12 }}{{ end }}
+{{- range $extraContainer := $envAll.Values.pod.extraContainers.keystone_api }}
+        - {{ $extraContainer | toYaml | indent 10 | trim }}
+{{- end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: etckeystone
           emptyDir: {}
@@ -173,6 +184,14 @@ spec:
           secret:
             secretName: keystone-etc
             defaultMode: 0444
+        - name: keystone-etc-snippets
+{{- if $etcSources }}
+          projected:
+            sources:
+{{ toYaml $etcSources | indent 14 }}
+{{- else }}
+          emptyDir: {}
+{{ end }}
         - name: keystone-bin
           configMap:
             name: keystone-bin
@@ -190,9 +209,10 @@ spec:
         - name: keystone-credential-keys
           secret:
             secretName: keystone-credential-keys
-{{- dict "enabled" .Values.tls.oslo_db "name" .Values.endpoints.oslo_db.auth.admin.secret.tls.internal | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
-{{- dict "enabled" .Values.tls.identity "name" .Values.secrets.tls.identity.api.internal | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
-{{- dict "enabled" $envAll.Values.tls.oslo_messaging "name" $envAll.Values.endpoints.oslo_messaging.auth.admin.secret.tls.internal | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
+{{- dict "enabled" (or .Values.tls.oslo_db .Values.tls.oslo_messaging) "name" "client-certs" "secretName" .Values.secrets.tls.client.keystone | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
 
 {{ if $mounts_keystone_api.volumes }}{{ toYaml $mounts_keystone_api.volumes | indent 8 }}{{ end }}
+{{- range $extraVolume := $envAll.Values.pod.extraVolumes.keystone_api }}
+        - {{ $extraVolume | toYaml | indent 10 | trim }}
+{{- end }}
 {{- end }}

@@ -35,6 +35,7 @@ limitations under the License.
 {{- $_ := set $envAll.Values.__kubernetes_entrypoint_init_container "deps" ( index $envAll.Values.dependencies.static $component ) -}}
 {{- end -}}
 {{- end -}}
+{{- $_ := include "helm-toolkit.utils.dependency_jobs_filter" (dict "envAll" $envAll "deps" $envAll.Values.__kubernetes_entrypoint_init_container.deps) | toString | fromYaml -}}
 {{- $deps := $envAll.Values.__kubernetes_entrypoint_init_container.deps }}
 ---
 apiVersion: v1
@@ -42,11 +43,9 @@ kind: ServiceAccount
 metadata:
   name: {{ $saName }}
   namespace: {{ $saNamespace }}
-{{- if $envAll.Values.manifests.secret_registry }}
-{{- if $envAll.Values.endpoints.oci_image_registry.auth.enabled }}
+{{- if dig "oci_image_registry" "auth" "enabled" false ($envAll.Values.endpoints | default dict) }}
 imagePullSecrets:
   - name: {{ index $envAll.Values.secrets.oci_image_registry $envAll.Chart.Name }}
-{{- end -}}
 {{- end -}}
 {{- range $k, $v := $deps -}}
 {{- if eq $k "services" }}
@@ -65,6 +64,13 @@ imagePullSecrets:
 {{- $_ := set $allNamespace $saNamespace  (printf "%s%s" "pods," ((index $allNamespace $saNamespace) | default "")) }}
 {{- else if and (eq $k "secret") $v }}
 {{- $_ := set $allNamespace $saNamespace  (printf "%s%s" "secrets," ((index $allNamespace $saNamespace) | default "")) }}
+{{- else if and (eq $k "custom_resources") $v }}
+{{- range $cr := $v }}
+{{- $crNamespace := $cr.namespace | default $saNamespace }}
+{{- if not (contains "custom_resources" ((index $allNamespace $crNamespace) | default "")) }}
+{{- $_ := set $allNamespace $crNamespace (printf "%s%s" "custom_resources," ((index $allNamespace $crNamespace) | default "")) }}
+{{- end -}}
+{{- end -}}
 {{- end -}}
 {{- end -}}
 {{- $_ := unset $allNamespace $randomKey }}

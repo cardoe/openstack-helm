@@ -29,24 +29,20 @@ labels:
     node_selector_key: openstack-control-plane
     node_selector_value: enabled
 
-# NOTE(philsphicas): the pre-install hook breaks upgrade for helm2
-# Set to false to upgrade using helm2
-helm3_hook: true
-
 images:
   pull_policy: IfNotPresent
   tags:
-    tacker_server: quay.io/airshipit/tacker:2025.1-ubuntu_noble
-    tacker_conductor: quay.io/airshipit/tacker:2025.1-ubuntu_noble
-    scripted_test: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    db_init: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    db_drop: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    tacker_db_sync: quay.io/airshipit/tacker:2025.1-ubuntu_noble
-    ks_endpoints: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_service: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_user: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    rabbit_init: docker.io/rabbitmq:3.13-management
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
+    tacker_server: quay.io/airshipit/tacker:2026.1-ubuntu_noble
+    tacker_conductor: quay.io/airshipit/tacker:2026.1-ubuntu_noble
+    scripted_test: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    db_init: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    db_drop: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    tacker_db_sync: quay.io/airshipit/tacker:2026.1-ubuntu_noble
+    ks_endpoints: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_service: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_user: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    rabbit_init: docker.io/rabbitmq:4.3.5-management
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_noble
   local_registry:
     active: false
     exclude:
@@ -232,27 +228,11 @@ storage:
 
 network:
   api:
-    ingress:
-      public: true
-      classes:
-        namespace: "ingress-openstack"
-        cluster: "ingress-cluster"
-      annotations:
-        nginx.ingress.kubernetes.io/rewrite-target: /
-        haproxy.org/path-rewrite: /
     external_policy_local: false
     node_port:
       enabled: false
       port: 30900
   conductor:
-    ingress:
-      public: true
-      classes:
-        namespace: "ingress-openstack"
-        cluster: "ingress-cluster"
-      annotations:
-        nginx.ingress.kubernetes.io/rewrite-target: /
-        haproxy.org/path-rewrite: /
     external_policy_local: false
     node_port:
       enabled: false
@@ -264,17 +244,23 @@ secrets:
     tacker: tacker-keystone-user
   oslo_db:
     admin: tacker-db-admin
-    tacker: tacker-db-user
   oslo_messaging:
     admin: tacker-rabbitmq-admin
     tacker: tacker-rabbitmq-user
   oci_image_registry:
     tacker: tacker-oci-image-registry
   tls:
+    client:
+      tacker: tacker-client
     nfv_orchestration:
       api:
         public: tacker-tls-public
         internal: tacker-tls-internal
+
+identity:
+  openrc:
+    exclude_vars: []
+    extra_vars: []
 
 endpoints:
   cluster_domain_suffix: cluster.local
@@ -283,9 +269,6 @@ endpoints:
       admin:
         username: root
         password: password
-        secret:
-          tls:
-            internal: mariadb-tls-direct
       tacker:
         username: tacker
         password: password
@@ -334,9 +317,6 @@ endpoints:
       admin:
         username: rabbitmq
         password: password
-        secret:
-          tls:
-            internal: rabbitmq-tls-direct
       tacker:
         username: tacker
         password: password
@@ -432,6 +412,11 @@ conf:
       connection_recycle_time: 10
       max_pool_size: 1
       max_retries: "-1"
+      # -- Database connection URI. When empty the URI is auto-generated
+      ## from endpoints.oslo_db. Set to null to disable auto-generation,
+      ## e.g. when using an operator such as mariadb-operator that supplies
+      ## the connection string via a mounted configuration snippet.
+      connection: ""
     keystone_authtoken:
       service_type: nfv-orchestration
       auth_type: password
@@ -443,8 +428,18 @@ conf:
     ceilometer:
       host: tacker-api.openstack.svc.cluster.local
       port: 9890
+    oslo_messaging_rabbit:
+      # -- Durable and quorum queues, which RabbitMQ 4.x requires: it denies
+      ## transient non-exclusive queues, and oslo.messaging declares its RPC,
+      ## notification, reply and fanout queues that way otherwise. Valid on 3.x.
+      amqp_durable_queues: true
+      rabbit_quorum_queue: true
+      rabbit_transient_quorum_queue: true
+      use_queue_manager: true
     oslo_messaging_notifications:
       driver: noop
+    oslo_concurrency:
+      lock_path: /var/lock
     glance_store:
       filesystem_store_datadir: /var/lib/tacker/csar_files
   server:
@@ -641,6 +636,38 @@ manifests:
   secret_rabbitmq: true
   service_api: true
   service_conductor: true
-  ingress_api: true
-  service_ingress_api: true
+
+# -- Extra K8s manifests to deploy. Either a list or a map of manifests.
+## Note: Supports use of custom Helm templates
+## Note: Helm replaces (instead of merging) list values when several values
+## files are combined, so if you need to define extraObjects in more than one
+## overrides file, use the map form and make sure the keys are unique across
+## those files. With the list form only the last file takes effect.
+extraObjects: {}
+  # osh_secrets_store:
+  #   apiVersion: secrets-store.csi.x-k8s.io/v1
+  #   kind: SecretProviderClass
+  #   metadata:
+  #     name: osh-secrets-store
+  #   spec:
+  #     provider: aws
+  #     parameters:
+  #       objects: |
+  #         - objectName: "osh"
+  #           objectType: "secretsmanager"
+  #           jmesPath:
+  #               - path: "client_id"
+  #                 objectAlias: "client_id"
+  #               - path: "client_secret"
+  #                 objectAlias: "client_secret"
+  #     secretObjects:
+  #     - data:
+  #       - key: client_id
+  #         objectName: client_id
+  #       - key: client_secret
+  #         objectName: client_secret
+  #       secretName: osh-secrets-store
+  #       type: Opaque
+  #       labels:
+  #         app.kubernetes.io/part-of: osh
 ...

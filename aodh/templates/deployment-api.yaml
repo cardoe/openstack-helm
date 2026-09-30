@@ -22,6 +22,8 @@ limitations under the License.
 
 {{- $serviceAccountName := "aodh-api" }}
 {{ tuple $envAll "api" $serviceAccountName | include "helm-toolkit.snippets.kubernetes_pod_rbac_serviceaccount" }}
+
+{{- $etcSources := .Values.pod.etcSources.aodh_api }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -29,7 +31,7 @@ metadata:
   name: aodh-api
   annotations:
     {{ tuple $envAll | include "helm-toolkit.snippets.release_uuid" }}
-    labels:
+  labels:
 {{ tuple $envAll "aodh" "api" | include "helm-toolkit.snippets.kubernetes_metadata_labels" | indent 4 }}
 spec:
   replicas: {{ .Values.pod.replicas.api }}
@@ -65,30 +67,37 @@ spec:
 {{ tuple $envAll $envAll.Values.pod.resources.api | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
 {{ dict "envAll" $envAll "application" "aodh" "container" "aodh_api" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
           command:
-            - /tmp/aodh-api.sh
-            - start
-          lifecycle:
-            preStop:
-              exec:
-                command:
-                  - /tmp/aodh-api.sh
-                  - stop
+            - uwsgi
+            - --ini
+            - /etc/aodh/aodh-api-uwsgi.ini
+{{- if .Values.secrets.tls.ca }}
+          env:
+            - name: REQUESTS_CA_BUNDLE
+              value: "/etc/ssl/certs/openstack-helm.crt"
+{{- end }}
           ports:
             - name: a-api
               containerPort: {{ tuple "alarming" "internal" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
           readinessProbe:
             tcpSocket:
-              port: {{ tuple "alarming" "internal" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
+              port: {{ tuple "alarming" "service" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
-            - name: wsgi-aodh
-              mountPath: /var/www/cgi-bin/aodh
+            - name: oslo-lock-path
+              mountPath: {{ .Values.conf.aodh.oslo_concurrency.lock_path }}
             - name: pod-etc-aodh
               mountPath: /etc/aodh
             - name: aodh-etc
+              mountPath: /etc/aodh/aodh-api-uwsgi.ini
+              subPath: aodh-api-uwsgi.ini
+              readOnly: true
+            - name: aodh-etc
               mountPath: /etc/aodh/aodh.conf
               subPath: aodh.conf
+              readOnly: true
+            - name: aodh-etc-snippets
+              mountPath: /etc/aodh/aodh.conf.d/
               readOnly: true
             {{- if .Values.conf.aodh.DEFAULT.log_config_append }}
             - name: aodh-etc
@@ -104,19 +113,15 @@ spec:
               mountPath: /etc/aodh/policy.yaml
               subPath: policy.yaml
               readOnly: true
-            - name: aodh-etc
-              mountPath: /etc/apache2/conf-enabled/wsgi-aodh.conf
-              subPath: wsgi-aodh.conf
-              readOnly: true
-            - name: aodh-bin
-              mountPath: /tmp/aodh-api.sh
-              subPath: aodh-api.sh
-              readOnly: true
+{{- dict "enabled" (not (empty .Values.secrets.tls.ca)) "name" .Values.secrets.tls.ca | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
 {{ if $mounts_aodh_api.volumeMounts }}{{ toYaml $mounts_aodh_api.volumeMounts | indent 12 }}{{ end }}
+{{- range $extraContainer := $envAll.Values.pod.extraContainers.aodh_api }}
+        - {{ $extraContainer | toYaml | indent 10 | trim }}
+{{- end }}
       volumes:
         - name: pod-tmp
           emptyDir: {}
-        - name: wsgi-aodh
+        - name: oslo-lock-path
           emptyDir: {}
         - name: pod-etc-aodh
           emptyDir: {}
@@ -124,9 +129,21 @@ spec:
           secret:
             secretName: aodh-etc
             defaultMode: 0444
+        - name: aodh-etc-snippets
+{{- if $etcSources }}
+          projected:
+            sources:
+{{ toYaml $etcSources | indent 14 }}
+{{- else }}
+          emptyDir: {}
+{{ end }}
         - name: aodh-bin
           configMap:
             name: aodh-bin
             defaultMode: 0555
+{{- dict "enabled" (not (empty .Values.secrets.tls.ca)) "name" .Values.secrets.tls.ca | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
 {{ if $mounts_aodh_api.volumes }}{{ toYaml $mounts_aodh_api.volumes | indent 8 }}{{ end }}
+{{- range $extraVolume := $envAll.Values.pod.extraVolumes.aodh_api }}
+        - {{ $extraVolume | toYaml | indent 10 | trim }}
+{{- end }}
 {{- end }}

@@ -26,13 +26,13 @@ labels:
 images:
   tags:
     bootstrap: docker.io/xrally/xrally-openstack:2.0.0
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_noble
     db_init: docker.io/xrally/xrally-openstack:2.0.0
     rally_db_sync: docker.io/xrally/xrally-openstack:2.0.0
     run_task: docker.io/xrally/xrally-openstack:2.0.0
-    ks_user: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_service: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_endpoints: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
+    ks_user: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_service: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_endpoints: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
     image_repo_sync: docker.io/docker:17.07.0
   pull_policy: "IfNotPresent"
   local_registry:
@@ -212,6 +212,11 @@ secrets:
         public: keystone-tls-public
         internal: keystone-tls-api
 
+identity:
+  openrc:
+    exclude_vars: []
+    extra_vars: []
+
 endpoints:
   cluster_domain_suffix: cluster.local
   local_image_registry:
@@ -330,7 +335,11 @@ conf:
     rally_api:
       bind_port: 9312
     database:
-      connection:
+      # -- Database connection URI. When empty the URI is auto-generated
+      ## from endpoints.oslo_db. Set to null to disable auto-generation,
+      ## e.g. when using an operator such as mariadb-operator that supplies
+      ## the connection string via a mounted configuration snippet.
+      connection: ""
   rally_tasks:
     heat_tests:
       autoscaling_group:
@@ -3991,10 +4000,6 @@ conf:
             times: 6
             type: constant
 
-# NOTE(helm_hook): helm_hook might break for helm2 binary.
-# set helm3_hook: false when using the helm2 binary.
-helm3_hook: true
-
 tls:
   identity: false
 
@@ -4015,4 +4020,38 @@ manifests:
   secret_db: true
   secret_keystone: true
   secret_registry: true
+
+# -- Extra K8s manifests to deploy. Either a list or a map of manifests.
+## Note: Supports use of custom Helm templates
+## Note: Helm replaces (instead of merging) list values when several values
+## files are combined, so if you need to define extraObjects in more than one
+## overrides file, use the map form and make sure the keys are unique across
+## those files. With the list form only the last file takes effect.
+extraObjects: {}
+  # osh_secrets_store:
+  #   apiVersion: secrets-store.csi.x-k8s.io/v1
+  #   kind: SecretProviderClass
+  #   metadata:
+  #     name: osh-secrets-store
+  #   spec:
+  #     provider: aws
+  #     parameters:
+  #       objects: |
+  #         - objectName: "osh"
+  #           objectType: "secretsmanager"
+  #           jmesPath:
+  #               - path: "client_id"
+  #                 objectAlias: "client_id"
+  #               - path: "client_secret"
+  #                 objectAlias: "client_secret"
+  #     secretObjects:
+  #     - data:
+  #       - key: client_id
+  #         objectName: client_id
+  #       - key: client_secret
+  #         objectName: client_secret
+  #       secretName: osh-secrets-store
+  #       type: Opaque
+  #       labels:
+  #         app.kubernetes.io/part-of: osh
 ...

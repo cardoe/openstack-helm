@@ -1,0 +1,12 @@
+---
+# Target the upstream mariadb-operator instead of the mariadb chart's own db
+# controller. This file is layered on top of mariadb-crd.yaml and changes
+# exactly one value, so the two deployments differ only in who reconciles the
+# custom resources -- everything else, including which secrets are projected
+# into which workloads, is whatever mariadb-crd.yaml says.
+#
+# On its own this file provisions nothing: manifests.mariadb_db stays false
+# without mariadb-crd.yaml.
+mariadb_db:
+  api_group: k8s.mariadb.com
+...

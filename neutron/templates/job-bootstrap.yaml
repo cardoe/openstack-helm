@@ -19,12 +19,10 @@ helm.sh/hook-weight: "5"
 
 {{- if and .Values.manifests.job_bootstrap .Values.bootstrap.enabled }}
 {{- $bootstrapJob := dict "envAll" . "serviceName" "neutron" "keystoneUser" .Values.bootstrap.ks_user "logConfigFile" .Values.conf.neutron.DEFAULT.log_config_append  -}}
-{{- if or .Values.manifests.certificates .Values.tls.identity -}}
-{{- $_ := set $bootstrapJob "tlsSecret" .Values.secrets.tls.network.server.internal -}}
+{{- if .Values.secrets.tls.ca -}}
+{{- $_ := set $bootstrapJob "tlsSecret" .Values.secrets.tls.ca -}}
 {{- end -}}
-{{- if .Values.helm3_hook }}
 {{- $_ := set $bootstrapJob "jobAnnotations" (include "metadata.annotations.job.bootstrap" . | fromYaml) }}
-{{- end }}
 {{- if .Values.pod.tolerations.neutron.enabled -}}
 {{- $_ := set $bootstrapJob "tolerationsEnabled" true -}}
 {{- end -}}

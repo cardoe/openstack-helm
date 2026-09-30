@@ -30,17 +30,17 @@ labels:
 images:
   tags:
     test: docker.io/xrally/xrally-openstack:2.0.0
-    bootstrap: quay.io/airshipit/openstack-client:2025.1-ubuntu_jammy
-    db_init: quay.io/airshipit/openstack-client:2025.1-ubuntu_jammy
-    db_drop: quay.io/airshipit/openstack-client:2025.1-ubuntu_jammy
-    ks_user: quay.io/airshipit/openstack-client:2025.1-ubuntu_jammy
-    ks_service: quay.io/airshipit/openstack-client:2025.1-ubuntu_jammy
-    ks_endpoints: quay.io/airshipit/openstack-client:2025.1-ubuntu_jammy
-    rabbit_init: docker.io/rabbitmq:3.13-management
-    blazar_db_sync: quay.io/airshipit/blazar:2025.1-ubuntu_jammy
-    blazar_api: quay.io/airshipit/blazar:2025.1-ubuntu_jammy
-    blazar_manager: quay.io/airshipit/blazar:2025.1-ubuntu_jammy
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
+    bootstrap: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    db_init: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    db_drop: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_user: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_service: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_endpoints: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    rabbit_init: docker.io/rabbitmq:4.3.5-management
+    blazar_db_sync: quay.io/airshipit/blazar:2026.1-ubuntu_noble
+    blazar_api: quay.io/airshipit/blazar:2026.1-ubuntu_noble
+    blazar_manager: quay.io/airshipit/blazar:2026.1-ubuntu_noble
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_noble
     image_repo_sync: docker.io/docker:17.07.0
 
   pull_policy: "IfNotPresent"
@@ -52,27 +52,11 @@ images:
 
 network:
   api:
-    ingress:
-      public: true
-      classes:
-        namespace: "ingress-openstack"
-        cluster: "ingress-cluster"
-      annotations:
-        nginx.ingress.kubernetes.io/rewrite-target: /
-        haproxy.org/path-rewrite: /
     external_policy_local: false
     node_port:
       enabled: false
       port: 30788
   manager:
-    ingress:
-      public: true
-      classes:
-        namespace: "ingress-openstack"
-        cluster: "ingress-cluster"
-      annotations:
-        nginx.ingress.kubernetes.io/rewrite-target: /
-        haproxy.org/path-rewrite: /
     external_policy_local: false
     node_port:
       enabled: false
@@ -177,17 +161,25 @@ secrets:
     test: blazar-keystone-test
   oslo_db:
     admin: blazar-db-admin
-    blazar: blazar-db-user
   oslo_messaging:
     admin: blazar-rabbitmq-admin
     blazar: blazar-rabbitmq-user
   tls:
+    # Client certificate this chart presents for all mTLS backend connections
+    # (MariaDB and RabbitMQ). Separate from the MariaDB and RabbitMQ server certs.
+    client:
+      blazar: blazar-client
     reservation:
       api:
         public: blazar-tls-public
         internal: blazar-tls-internal
         nginx: blazar-tls-nginx
         nginx_cluster: blazar-tls-nginx-cluster
+
+identity:
+  openrc:
+    exclude_vars: []
+    extra_vars: []
 
 endpoints:
   cluster_domain_suffix: cluster.local
@@ -272,9 +264,6 @@ endpoints:
       admin:
         username: root
         password: password
-        secret:
-          tls:
-            internal: mariadb-tls-direct
       blazar:
         username: blazar
         password: password
@@ -292,9 +281,6 @@ endpoints:
       admin:
         username: rabbitmq
         password: password
-        secret:
-          tls:
-            internal: rabbitmq-tls-direct
       blazar:
         username: blazar
         password: password
@@ -369,14 +355,6 @@ endpoints:
       dns:
         default: 53
         protocol: UDP
-  ingress:
-    namespace: null
-    name: ingress
-    hosts:
-      default: ingress
-    port:
-      ingress:
-        default: 80
 
 pod:
   probes:
@@ -612,6 +590,11 @@ conf:
       os_admin_project_domain_name:
     database:
       max_retries: -1
+      # -- Database connection URI. When empty the URI is auto-generated
+      ## from endpoints.oslo_db. Set to null to disable auto-generation,
+      ## e.g. when using an operator such as mariadb-operator that supplies
+      ## the connection string via a mounted configuration snippet.
+      connection: ""
     keystone_authtoken:
       service_token_roles: service
       service_token_roles_required: true
@@ -622,7 +605,19 @@ conf:
     oslo_messaging_notifications:
       driver: messagingv2
     oslo_messaging_rabbit:
-      rabbit_ha_queues: true
+      rabbit_ha_queues: false
+      # -- Durable queues are required by RabbitMQ 4.x, which denies
+      ## transient non-exclusive queues by default. Also valid on 3.x.
+      amqp_durable_queues: true
+      # -- Quorum queues, which RabbitMQ 4.x requires: it denies transient
+      ## non-exclusive queues, and oslo.messaging declares its reply and fanout
+      ## queues that way unless the transient ones are quorum too.
+      ## amqp_durable_queues alone only covers the RPC and notification queues.
+      rabbit_quorum_queue: true
+      rabbit_transient_quorum_queue: true
+      use_queue_manager: true
+    oslo_concurrency:
+      lock_path: /var/lock
     manager:
       plugins: physical.host.plugin,virtual.instance.plugin,flavor.instance.plugin,virtual.floatingip.plugin
     enforcement:
@@ -738,8 +733,6 @@ conf:
         name: "ha_ttl_blazar"
         pattern: '^(?!(amq\.|reply_)).*'
         definition:
-          ha-mode: "all"
-          ha-sync-mode: "automatic"
           message-ttl: 70000
         priority: 0
         apply-to: all
@@ -767,17 +760,12 @@ bootstrap:
   script: |
     openstack token issue
 
-# NOTE(helm_hook): helm_hook might break for helm2 binary.
-# set helm3_hook: false when using the helm2 binary.
-helm3_hook: true
-
 manifests:
   certificates: false
   configmap_bin: true
   configmap_etc: true
   deployment_api: true
   deployment_manager: true
-  ingress_api: true
   job_bootstrap: true
   job_db_init: true
   job_db_drop: false
@@ -795,7 +783,6 @@ manifests:
   secret_ks_etc: true
   secret_rabbitmq: true
   service_api: true
-  service_ingress_api: true
 
 network_policy:
   blazar:
@@ -811,4 +798,37 @@ tls:
   reservation:
     api:
       public: false
+# -- Extra K8s manifests to deploy. Either a list or a map of manifests.
+## Note: Supports use of custom Helm templates
+## Note: Helm replaces (instead of merging) list values when several values
+## files are combined, so if you need to define extraObjects in more than one
+## overrides file, use the map form and make sure the keys are unique across
+## those files. With the list form only the last file takes effect.
+extraObjects: {}
+  # osh_secrets_store:
+  #   apiVersion: secrets-store.csi.x-k8s.io/v1
+  #   kind: SecretProviderClass
+  #   metadata:
+  #     name: osh-secrets-store
+  #   spec:
+  #     provider: aws
+  #     parameters:
+  #       objects: |
+  #         - objectName: "osh"
+  #           objectType: "secretsmanager"
+  #           jmesPath:
+  #               - path: "client_id"
+  #                 objectAlias: "client_id"
+  #               - path: "client_secret"
+  #                 objectAlias: "client_secret"
+  #     secretObjects:
+  #     - data:
+  #       - key: client_id
+  #         objectName: client_id
+  #       - key: client_secret
+  #         objectName: client_secret
+  #       secretName: osh-secrets-store
+  #       type: Opaque
+  #       labels:
+  #         app.kubernetes.io/part-of: osh
 ...

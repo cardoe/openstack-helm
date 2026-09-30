@@ -1,9 +1,4 @@
 ---
-network:
-  api:
-    ingress:
-      annotations:
-        nginx.ingress.kubernetes.io/backend-protocol: "https"
 conf:
   software:
     apache2:
@@ -21,11 +16,14 @@ conf:
   wsgi_placement: |
     {{- $portInt := tuple "placement" "service" "api" $ | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
     Listen {{ $portInt }}
+    <Directory /var/lib/openstack/bin>
+        Require all granted
+    </Directory>
     <VirtualHost *:{{ $portInt }}>
       ServerName {{ printf "%s.%s.svc.%s" "placement-api" .Release.Namespace .Values.endpoints.cluster_domain_suffix }}
       WSGIDaemonProcess placement-api processes=1 threads=1 user=placement group=placement display-name=%{GROUP}
       WSGIProcessGroup placement-api
-      WSGIScriptAlias / /var/www/cgi-bin/placement/placement-api
+      WSGIScriptAlias / /var/lib/openstack/bin/placement-api
       WSGIApplicationGroup %{GLOBAL}
       WSGIPassAuthorization On
       ErrorLogFormat "%{cu}t %M"
@@ -41,6 +39,15 @@ conf:
       SSLHonorCipherOrder     on
     </VirtualHost>
 endpoints:
+  oslo_db:
+    host_fqdn_override:
+      default:
+        tls:
+          issuerRef:
+            name: ca-issuer
+            kind: ClusterIssuer
+          usages:
+            - client auth
   identity:
     auth:
       admin:
@@ -68,4 +75,6 @@ endpoints:
         public: 443
 manifests:
   certificates: true
+tls:
+  oslo_db: true
 ...

@@ -33,7 +33,7 @@ ifdef PACKAGE_DIR
 	PKG_ARGS += --destination $(PACKAGE_DIR)
 endif
 
-BASE_VERSION ?= 2025.2.0
+BASE_VERSION ?= 2026.1.0
 
 CHART_DIRS := $(subst /,,$(dir $(wildcard */Chart.yaml)))
 CHARTS := $(sort helm-toolkit $(CHART_DIRS))
@@ -90,13 +90,10 @@ clean:
 	rm -rf */charts */tmpcharts
 
 pull-all-images:
-	@./tools/deployment/common/pull-images.sh
+	@./tools/pull-images.sh
 
 pull-images:
-	@./tools/deployment/common/pull-images.sh $(filter-out $@,$(MAKECMDGOALS))
-
-dev-deploy:
-	@./tools/gate/devel/start.sh $(filter-out $@,$(MAKECMDGOALS))
+	@./tools/pull-images.sh $(filter-out $@,$(MAKECMDGOALS))
 
 %:
 	@:

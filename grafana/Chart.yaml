@@ -12,10 +12,10 @@
 
 ---
 apiVersion: v2
-appVersion: v9.2.10
+appVersion: v12.4.2
 description: OpenStack-Helm Grafana
 name: grafana
-version: 2025.2.0
+version: 2026.1.0
 home: https://grafana.com/
 sources:
   - https://github.com/grafana/grafana

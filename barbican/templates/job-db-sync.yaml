@@ -13,10 +13,8 @@ limitations under the License.
 */}}
 
 {{- define "metadata.annotations.job.db_sync" }}
-{{- if .Values.helm3_hook }}
 helm.sh/hook: post-install,post-upgrade
 helm.sh/hook-weight: "-4"
-{{- end }}
 {{- end }}
 
 {{- $podVolMounts := .Values.pod.mounts.barbican_db_sync.barbican_db_sync.volumeMounts | default list }}
@@ -25,8 +23,8 @@ helm.sh/hook-weight: "-4"
 
 {{- if .Values.manifests.job_db_sync }}
 {{- $dbSyncJob := dict "envAll" . "serviceName" "barbican" "podVolMounts" $podVolMounts "podVols" .Values.pod.mounts.barbican_db_sync.barbican_db_sync.volumes "jobAnnotations" (include "metadata.annotations.job.db_sync" . | fromYaml) -}}
-{{- if .Values.manifests.certificates -}}
-{{- $_ := set $dbSyncJob "dbAdminTlsSecret" .Values.endpoints.oslo_db.auth.admin.secret.tls.internal -}}
+{{- if .Values.tls.oslo_db -}}
+{{- $_ := set $dbSyncJob "dbAdminTlsSecret" .Values.secrets.tls.client.barbican -}}
 {{- end -}}
 {{- if .Values.pod.tolerations.barbican.enabled -}}
 {{- $_ := set $dbSyncJob "tolerationsEnabled" true -}}

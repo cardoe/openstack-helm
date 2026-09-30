@@ -23,13 +23,14 @@ images:
     mariadb: quay.io/airshipit/mariadb:latest-ubuntu_noble
     prometheus_create_mysql_user: quay.io/airshipit/mariadb:11.4.8-noble
     prometheus_mysql_exporter: docker.io/prom/mysqld-exporter:v0.12.1
-    prometheus_mysql_exporter_helm_tests: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
+    prometheus_mysql_exporter_helm_tests: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_noble
     image_repo_sync: quay.io/airshipit/docker:27.5.0
     mariadb_backup: quay.io/airshipit/porthole-mysqlclient-utility:latest-ubuntu_jammy
-    ks_user: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
+    ks_user: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
     scripted_test: quay.io/airshipit/mariadb:latest-ubuntu_noble
     mariadb_controller: quay.io/airshipit/mariadb:latest-ubuntu_noble
+    mariadb_db_controller: quay.io/airshipit/mariadb:latest-ubuntu_noble
   pull_policy: "IfNotPresent"
   local_registry:
     active: false
@@ -53,6 +54,9 @@ labels:
   controller:
     node_selector_key: openstack-control-plane
     node_selector_value: enabled
+  db_controller:
+    node_selector_key: openstack-control-plane
+    node_selector_value: enabled
 
 pod:
   env:
@@ -60,6 +64,19 @@ pod:
       MARIADB_CONTROLLER_DEBUG: 0
       MARIADB_CONTROLLER_CHECK_PODS_DELAY: 10
       MARIADB_CONTROLLER_PYKUBE_REQUEST_TIMEOUT: 60
+    mariadb_db_controller:
+      MARIADB_DB_CONTROLLER_DEBUG: 0
+      # -- Delay between reconcile sweeps of the custom resources
+      MARIADB_DB_CONTROLLER_RECONCILE_INTERVAL: 10
+      # -- How often to re-apply SQL for resources whose desired state has not
+      ## changed, repairing drift caused by changes made outside the controller
+      MARIADB_DB_CONTROLLER_FULL_RESYNC_INTERVAL: 1800
+      # -- Retry delay for a resource that does not set spec.retryInterval
+      MARIADB_DB_CONTROLLER_ERROR_BACKOFF: 10
+      MARIADB_DB_CONTROLLER_PYKUBE_REQUEST_TIMEOUT: 60
+      MARIADB_DB_CONTROLLER_DB_CONNECT_TIMEOUT: 10
+      MARIADB_DB_CONTROLLER_DEFAULT_CHARACTER_SET: utf8
+      MARIADB_DB_CONTROLLER_DEFAULT_COLLATE: utf8_general_ci
   probes:
     server:
       mariadb:
@@ -144,6 +161,17 @@ pod:
         controller:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
+    db_controller:
+      pod:
+        runAsUser: 65534
+        runAsNonRoot: true
+      container:
+        db_controller:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
     cluster_wait:
       pod:
         runAsUser: 65534
@@ -175,6 +203,8 @@ pod:
   replicas:
     server: 3
     controller: 1
+    # -- Must stay at 1: the controller does no leader election
+    db_controller: 1
   lifecycle:
     upgrades:
       deployments:
@@ -192,6 +222,20 @@ pod:
   resources:
     enabled: false
     server:
+      requests:
+        memory: "128Mi"
+        cpu: "100m"
+      limits:
+        memory: "1024Mi"
+        cpu: "2000m"
+    controller:
+      requests:
+        memory: "128Mi"
+        cpu: "100m"
+      limits:
+        memory: "1024Mi"
+        cpu: "2000m"
+    db_controller:
       requests:
         memory: "128Mi"
         cpu: "100m"
@@ -265,6 +309,12 @@ dependencies:
           service: oslo_db
     controller:
       services: null
+    db_controller:
+      jobs:
+        - mariadb-cluster-wait
+      services:
+        - endpoint: internal
+          service: oslo_db
     cluster_wait:
       services:
         - endpoint: internal
@@ -513,6 +563,11 @@ secrets:
         internal: mariadb-tls-direct
 
 # typically overridden by environmental
+identity:
+  openrc:
+    exclude_vars: []
+    extra_vars: []
+
 # values, but should include all endpoints
 # required by this chart
 endpoints:
@@ -677,13 +732,12 @@ network_policy:
     egress:
       - {}
 
-# Helm hook breaks for helm2.
-# Set helm3_hook: false in case helm2 is used.
-helm3_hook: true
-
 manifests:
   certificates: false
   configmap_bin: true
+  # -- Deploy the Database/User/Grant/Connection custom resource definitions
+  ## reconciled by the mariadb-db-controller deployment. Inert on their own.
+  crds: true
   configmap_etc: true
   configmap_services_tcp: true
   job_image_repo_sync: true
@@ -709,6 +763,45 @@ manifests:
   service: true
   statefulset: true
   deployment_controller: true
+  # -- Deploy the controller reconciling the Database/User/Grant/Connection
+  ## custom resources. Off by default: enabling it adds a pod, RBAC and a new
+  ## configmap-bin key, which changes the bin configmap hash and therefore
+  ## rolls the galera statefulset on upgrade.
+  deployment_db_controller: false
   service_master: true
   job_cluster_wait: false
+
+# -- Extra K8s manifests to deploy. Either a list or a map of manifests.
+## Note: Supports use of custom Helm templates
+## Note: Helm replaces (instead of merging) list values when several values
+## files are combined, so if you need to define extraObjects in more than one
+## overrides file, use the map form and make sure the keys are unique across
+## those files. With the list form only the last file takes effect.
+extraObjects: {}
+  # osh_secrets_store:
+  #   apiVersion: secrets-store.csi.x-k8s.io/v1
+  #   kind: SecretProviderClass
+  #   metadata:
+  #     name: osh-secrets-store
+  #   spec:
+  #     provider: aws
+  #     parameters:
+  #       objects: |
+  #         - objectName: "osh"
+  #           objectType: "secretsmanager"
+  #           jmesPath:
+  #               - path: "client_id"
+  #                 objectAlias: "client_id"
+  #               - path: "client_secret"
+  #                 objectAlias: "client_secret"
+  #     secretObjects:
+  #     - data:
+  #       - key: client_id
+  #         objectName: client_id
+  #       - key: client_secret
+  #         objectName: client_secret
+  #       secretName: osh-secrets-store
+  #       type: Opaque
+  #       labels:
+  #         app.kubernetes.io/part-of: osh
 ...

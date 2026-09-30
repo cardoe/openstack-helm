@@ -14,6 +14,7 @@
 {{- $envAll := . }}
 {{- $mounts_designate_sink := .Values.pod.mounts.designate_sink.designate_sink }}
 {{- $mounts_designate_sink_init := .Values.pod.mounts.designate_sink.init_container }}
+{{- $etcSources := .Values.pod.etcSources.designate_sink }}
 
 {{- $serviceAccountName := "designate-sink" }}
 {{ tuple $envAll "sink" $serviceAccountName | include "helm-toolkit.snippets.kubernetes_pod_rbac_serviceaccount" }}
@@ -60,6 +61,8 @@ spec:
             - bash
             - /tmp/designate-sink.sh
           volumeMounts:
+            - name: oslo-lock-path
+              mountPath: {{ .Values.conf.designate.oslo_concurrency.lock_path }}
             - name: designate-bin
               mountPath: /tmp/designate-sink.sh
               subPath: designate-sink.sh
@@ -71,6 +74,9 @@ spec:
             - name: designate-etc
               mountPath: /etc/designate/designate.conf
               subPath: designate.conf
+              readOnly: true
+            - name: designate-etc-snippets
+              mountPath: /etc/designate/designate.conf.d/
               readOnly: true
             - name: designate-etc
               mountPath: /etc/designate/policy.yaml
@@ -84,6 +90,8 @@ spec:
             {{- end }}
 {{ if $mounts_designate_sink.volumeMounts }}{{ toYaml $mounts_designate_sink.volumeMounts | indent 12 }}{{ end }}
       volumes:
+        - name: oslo-lock-path
+          emptyDir: {}
         - name: pod-etc-designate
           emptyDir: {}
         - name: pod-var-cache-designate
@@ -96,5 +104,13 @@ spec:
           secret:
             secretName: designate-etc
             defaultMode: 0444
+        - name: designate-etc-snippets
+{{- if $etcSources }}
+          projected:
+            sources:
+{{ toYaml $etcSources | indent 14 }}
+{{- else }}
+          emptyDir: {}
+{{ end }}
 {{ if $mounts_designate_sink.volumes }}{{ toYaml $mounts_designate_sink.volumes | indent 8 }}{{ end }}
 {{- end }}

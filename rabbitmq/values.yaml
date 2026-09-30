@@ -26,13 +26,26 @@ labels:
   jobs:
     node_selector_key: openstack-control-plane
     node_selector_value: enabled
+  topology_controller:
+    node_selector_key: openstack-control-plane
+    node_selector_value: enabled
 
 images:
   tags:
-    rabbitmq_init: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    rabbitmq: quay.io/airshipit/rabbitmq:3.10.18
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
-    scripted_test: quay.io/airshipit/rabbitmq:3.10.18-management
+    rabbitmq_init: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    # -- The topology controller needs the kubernetes client for the Kubernetes
+    ## API and requests for the broker's management API. Both are on this image,
+    ## which the chart already pulls for the rabbitmq-password init container.
+    rabbitmq_topology_controller: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    rabbitmq: docker.io/rabbitmq:4.3.5
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_noble
+    # -- Image for the cluster-wait job. It needs rabbitmqctl to prune cluster
+    ## members and an HTTP client to discover them, so it must be a rabbitmq
+    ## management image.
+    scripted_test: docker.io/rabbitmq:4.3.5-management
+    # -- Image for the helm test pod. It queries the management HTTP API and
+    ## needs only python3, which the 4.x rabbitmq images do not ship.
+    rabbitmq_test: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
     image_repo_sync: quay.io/airshipit/docker:27.5.0
   pull_policy: "IfNotPresent"
   local_registry:
@@ -48,6 +61,38 @@ forceBoot:
   enabled: false
 
 pod:
+  # -- Soft open-file limit the broker raises itself to before starting.
+  ## RabbitMQ derives its whole file-handle budget from this, and that budget
+  ## covers the segment and WAL files of every quorum queue as well as client
+  ## sockets, so the runtime default of 1024 runs out well before the broker is
+  ## otherwise loaded. Capped at the container's hard limit; set to null to
+  ## leave the inherited limit alone.
+  nofile:
+    server: 65536
+  env:
+    rabbitmq_topology_controller:
+      RABBITMQ_TOPOLOGY_CONTROLLER_DEBUG: 0
+      # -- Delay between reconcile sweeps of the custom resources
+      RABBITMQ_TOPOLOGY_CONTROLLER_RECONCILE_INTERVAL: 10
+      # -- How often to re-declare resources whose desired state has not
+      ## changed, repairing drift caused by changes made outside the controller
+      RABBITMQ_TOPOLOGY_CONTROLLER_FULL_RESYNC_INTERVAL: 1800
+      # -- Retry delay for a resource that failed to reconcile
+      RABBITMQ_TOPOLOGY_CONTROLLER_ERROR_BACKOFF: 10
+      # -- Timeout for the RabbitMQ management API
+      RABBITMQ_TOPOLOGY_CONTROLLER_REQUEST_TIMEOUT: 60
+      # -- Timeout for Kubernetes API requests
+      RABBITMQ_TOPOLOGY_CONTROLLER_KUBERNETES_REQUEST_TIMEOUT: 60
+      # -- Delete the default guest account on every sweep. The chart declares
+      ## it in definitions.json, which management.load_definitions imports on
+      ## every node boot, so deleting it once does not hold. This is what the
+      ## per-chart rabbit-init jobs used to do.
+      RABBITMQ_TOPOLOGY_CONTROLLER_DELETE_GUEST_USER: 1
+      # -- Verify the management API certificate's hostname as well as its
+      ## chain. Off by default, matching what rabbit-init does with
+      ## rabbitmqadmin --ssl-disable-hostname-verification
+      RABBITMQ_TOPOLOGY_CONTROLLER_TLS_VERIFY_HOSTNAME: 0
+      RABBITMQ_TOPOLOGY_CONTROLLER_TLS_CA_FILE: /etc/rabbitmq/certs/ca.crt
   probes:
     rabbitmq:
       rabbitmq:
@@ -102,6 +147,17 @@ pod:
         rabbitmq_test:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
+    topology_controller:
+      pod:
+        runAsUser: 65534
+        runAsNonRoot: true
+      container:
+        topology_controller:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
   affinity:
     anti:
       type:
@@ -122,6 +178,8 @@ pod:
         effect: NoSchedule
   replicas:
     server: 2
+    # -- Must stay at 1: the controller does no leader election
+    topology_controller: 1
   lifecycle:
     upgrades:
       deployments:
@@ -142,6 +200,13 @@ pod:
       requests:
         memory: "128Mi"
         cpu: "500m"
+    topology_controller:
+      requests:
+        memory: "128Mi"
+        cpu: "100m"
+      limits:
+        memory: "1024Mi"
+        cpu: "2000m"
     jobs:
       tests:
         limits:
@@ -178,7 +243,7 @@ conf:
         interval: "10"
         only_log_warning: "true"
     cluster_partition_handling: autoheal
-    queue_master_locator: min-masters
+    queue_leader_locator: balanced
     loopback_users.guest: "false"
     management.load_definitions: "/var/lib/rabbitmq/definitions.json"
   rabbit_additonal_conf:
@@ -215,16 +280,15 @@ conf:
   #  aux_conf:
   #    policies:
   #      - vhost: "keystone"
-  #        name: "ha_ttl_keystone"
+  #        name: "ttl_keystone"
   #        definition:
-  #          #mirror messges to other nodes in rmq cluster
-  #          ha-mode: "all"
-  #          ha-sync-mode: "automatic"
   #          #70s
   #          message-ttl: 70000
   #        priority: 0
   #        apply-to: all
   #        pattern: '^(?!amq\.).*'
+  # Note: ha-mode and ha-sync-mode are not valid with RabbitMQ 4.x. Classic
+  # queue mirroring is gone; use quorum queues for high availability instead.
 dependencies:
   dynamic:
     common:
@@ -249,6 +313,12 @@ dependencies:
       services:
         - endpoint: internal
           service: oslo_messaging
+    topology_controller:
+      jobs:
+        - rabbitmq-cluster-wait
+      services:
+        - endpoint: internal
+          service: oslo_messaging
     image_repo_sync:
       services:
         - endpoint: internal
@@ -263,14 +333,6 @@ monitoring:
 network:
   host_namespace: false
   management:
-    ingress:
-      public: true
-      classes:
-        namespace: "ingress-openstack"
-        cluster: "ingress-cluster"
-      annotations:
-        nginx.ingress.kubernetes.io/rewrite-target: /
-        haproxy.org/path-rewrite: /
 
 secrets:
   oci_image_registry:
@@ -391,16 +453,20 @@ volume:
   class_name: general
   size: 768Mi
 
-# Hook break for helm2.
-# Set helm3_hook to false while using helm2
-helm3_hook: true
-
 manifests:
   certificates: false
   configmap_bin: true
   configmap_etc: true
   config_ipv6: false
-  ingress_management: true
+  # -- Deploy the Vhost/User/Permission/Queue/Exchange/Binding/Policy custom
+  ## resource definitions reconciled by the rabbitmq-topology-controller
+  ## deployment. Inert on their own.
+  crds: true
+  # -- Deploy the controller reconciling those custom resources. Off by
+  ## default: enabling it adds a pod, RBAC and a new configmap-bin key, which
+  ## changes the bin configmap hash and therefore rolls the server statefulset
+  ## on upgrade.
+  deployment_topology_controller: false
   job_cluster_wait: true
   job_image_repo_sync: true
   monitoring:
@@ -412,7 +478,40 @@ manifests:
   secret_erlang_cookie: true
   secret_registry: true
   service_discovery: true
-  service_ingress_management: true
   service: true
   statefulset: true
+
+# -- Extra K8s manifests to deploy. Either a list or a map of manifests.
+## Note: Supports use of custom Helm templates
+## Note: Helm replaces (instead of merging) list values when several values
+## files are combined, so if you need to define extraObjects in more than one
+## overrides file, use the map form and make sure the keys are unique across
+## those files. With the list form only the last file takes effect.
+extraObjects: {}
+  # osh_secrets_store:
+  #   apiVersion: secrets-store.csi.x-k8s.io/v1
+  #   kind: SecretProviderClass
+  #   metadata:
+  #     name: osh-secrets-store
+  #   spec:
+  #     provider: aws
+  #     parameters:
+  #       objects: |
+  #         - objectName: "osh"
+  #           objectType: "secretsmanager"
+  #           jmesPath:
+  #               - path: "client_id"
+  #                 objectAlias: "client_id"
+  #               - path: "client_secret"
+  #                 objectAlias: "client_secret"
+  #     secretObjects:
+  #     - data:
+  #       - key: client_id
+  #         objectName: client_id
+  #       - key: client_secret
+  #         objectName: client_secret
+  #       secretName: osh-secrets-store
+  #       type: Opaque
+  #       labels:
+  #         app.kubernetes.io/part-of: osh
 ...

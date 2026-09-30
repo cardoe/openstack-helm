@@ -24,11 +24,13 @@ images:
     ovn_ovsdb_sb: quay.io/airshipit/ovn:ubuntu_noble
     ovn_northd: quay.io/airshipit/ovn:ubuntu_noble
     ovn_controller: quay.io/airshipit/ovn:ubuntu_noble
-    ovn_controller_kubectl: quay.io/airshipit/ceph-config-helper:latest-ubuntu_jammy
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
+    ovn_controller_kubectl: quay.io/airshipit/ceph-config-helper:latest-ubuntu_noble
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_noble
     image_repo_sync: quay.io/airshipit/docker:27.5.0
     vector: docker.io/timberio/vector:0.51.1-debian
-    ovn_logging_parser: quay.io/airshipit/neutron:2025.1-ubuntu_noble
+    ovn_logging_parser: quay.io/airshipit/neutron:2026.1-ubuntu_noble
+    ovn_bgp_agent: quay.io/airshipit/ovn-bgp-agent:2026.1-ubuntu_noble
+    frr: quay.io/airshipit/ovn-bgp-agent:2026.1-ubuntu_noble
   pull_policy: "IfNotPresent"
   local_registry:
     active: false
@@ -51,6 +53,9 @@ labels:
     node_selector_value: enabled
   ovn_controller_gw:
     node_selector_key: l3-agent
+    node_selector_value: enabled
+  ovn_bgp_agent:
+    node_selector_key: openvswitch
     node_selector_value: enabled
 
 volume:
@@ -80,6 +85,12 @@ conf:
   ovn_bridge: br-int
   ovn_bridge_mappings: external:br-ex
   ovn_monitor_all: false
+  # For VLAN tenant networks, ovn-chassis-mac-mappings must be set.
+  # Each chassis needs a unique MAC per provider network.
+  # Set auto_chassis_mac_mappings to true to auto-generate deterministic
+  # MACs based on hostname, or specify ovn_chassis_mac_mappings explicitly.
+  # ovn_chassis_mac_mappings: "physnet1:fa:16:3e:aa:bb:cc"
+  auto_chassis_mac_mappings: false
   # For DPDK enabled environments, enable netdev datapath type for br-int
   # ovn_bridge_datapath_type: netdev
 
@@ -99,6 +110,7 @@ conf:
       lazy-apps: true
       log-x-forwarded-for: true
       master: true
+      need-app: true
       processes: 1
       procname-prefix-spaced: "neutron-ovn-network-logging-parser:"
       route-user-agent: '^kube-probe.* donotlog:'
@@ -139,6 +151,64 @@ conf:
     endpoint = "http://loki.monitoring:3100"
     encoding.codec = "json"
     tenant_id = "{{`{{ project_id }}`}}"
+  ovn_bgp_agent:
+    DEFAULT:
+      debug: true
+      reconcile_interval: 120
+      expose_tenant_networks: false
+      expose_ipv6_gua_tenant_networks: false
+      driver: ovn_bgp_driver
+      # bgp_router_id: 1.2.3.4
+      # bgp_AS: 64514
+      bgp_nic: bgp-nic
+      bgp_vrf: bgp-vrf
+      bgp_vrf_table_id: 10
+      ovsdb_connection: "unix:/run/openvswitch/db.sock"
+    agent:
+      root_helper: env
+    ovn:
+      # ovn_sb_connection: tcp:x.x.x.x:6642
+    local_ovn_cluster:
+      # provider_networks_pool_prefixes: x.x.x.x/24
+  frr_daemons: |
+    zebra=yes
+    bgpd=yes
+    ospfd=no
+    ospf6d=no
+    ripd=no
+    ripngd=no
+    isisd=no
+    pimd=no
+    ldpd=no
+    nhrpd=no
+    eigrpd=no
+    babeld=no
+    sharpd=no
+    pbrd=no
+    bfdd=no
+    fabricd=no
+    vrrpd=no
+    pathd=no
+    staticd=yes
+
+    vtysh_enable=yes
+    zebra_options="  -A 127.0.0.1 -s 90000000"
+    bgpd_options="   -A 127.0.0.1 -l 127.0.0.1 -p 0"
+    staticd_options="-A 127.0.0.1"
+  frr.conf: |
+    # Operators override this entirely. Sample left empty on purpose so a
+    # deployment without BGP peers does not advertise anything.
+    #
+    # ip prefix-list provider seq 10 permit x.x.x.x/24 le 32
+    # route-map provider permit 10
+    #   match ip address prefix-list provider
+    # exit
+    # router bgp {{ .Values.conf.ovn_bgp_agent.DEFAULT.bgp_AS }}
+    #   neighbor y.y.y.y remote-as 64512
+    #   address-family ipv4 unicast
+    #     neighbor y.y.y.y route-map provider out
+    #     neighbor y.y.y.y activate
+    #   exit-address-family
 
 pod:
   # NOTE: should be same as nova.pod.use_fqdn.compute
@@ -190,6 +260,7 @@ pod:
         value: "false"
       - name: OVN_SB_RAFT_ELECTION_TIMER
         value: "1000"
+    bgp_agent: []
   security_context:
     ovn_northd:
       container:
@@ -211,6 +282,18 @@ pod:
         vector:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
+    ovn_bgp_agent:
+      pod:
+        runAsUser: 0
+      container:
+        ovn_bgp_agent:
+          readOnlyRootFilesystem: false
+          runAsUser: 0
+          privileged: true
+        frr:
+          readOnlyRootFilesystem: true
+          runAsUser: 0
+          privileged: true
   tolerations:
     ovn_ovsdb_nb:
       enabled: false
@@ -220,6 +303,14 @@ pod:
       enabled: false
     ovn_controller:
       enabled: false
+    ovn_bgp_agent:
+      enabled: false
+  mounts:
+    ovn_bgp_agent:
+      init_container: null
+      ovn_bgp_agent:
+        volumeMounts:
+        volumes:
   affinity:
     anti:
       type:
@@ -262,6 +353,13 @@ pod:
             initialDelaySeconds: 30
             timeoutSeconds: 30
             periodSeconds: 60
+        liveness:
+          enabled: true
+          params:
+            initialDelaySeconds: 60
+            timeoutSeconds: 10
+            periodSeconds: 30
+            failureThreshold: 5
     ovn_controller_gw:
       controller:
         readiness:
@@ -292,6 +390,10 @@ pod:
           min_ready_seconds: 0
           max_unavailable: 1
         ovn_controller:
+          enabled: true
+          min_ready_seconds: 0
+          max_unavailable: 1
+        ovn_bgp_agent:
           enabled: true
           min_ready_seconds: 0
           max_unavailable: 1
@@ -339,6 +441,20 @@ pod:
       limits:
         memory: "256Mi"
         cpu: "500m"
+    ovn_bgp_agent:
+      requests:
+        memory: "128Mi"
+        cpu: "100m"
+      limits:
+        memory: "256Mi"
+        cpu: "500m"
+    frr:
+      requests:
+        memory: "128Mi"
+        cpu: "100m"
+      limits:
+        memory: "256Mi"
+        cpu: "500m"
     jobs:
       image_repo_sync:
         requests:
@@ -351,6 +467,7 @@ pod:
   sidecars:
     ovn_logging_parser: false
     vector: false
+    frr: false
 
 secrets:
   oci_image_registry:
@@ -475,6 +592,16 @@ dependencies:
           labels:
             application: openvswitch
             component: server
+    ovn_bgp_agent:
+      pod:
+        - requireSameNode: true
+          labels:
+            application: openvswitch
+            component: server
+        - requireSameNode: true
+          labels:
+            application: ovn
+            component: ovn-controller
     image_repo_sync:
       services:
         - endpoint: internal
@@ -492,4 +619,39 @@ manifests:
   daemonset_ovn_controller: true
   job_image_repo_sync: true
   secret_registry: true
+  daemonset_ovn_bgp_agent: false
+
+# -- Extra K8s manifests to deploy. Either a list or a map of manifests.
+## Note: Supports use of custom Helm templates
+## Note: Helm replaces (instead of merging) list values when several values
+## files are combined, so if you need to define extraObjects in more than one
+## overrides file, use the map form and make sure the keys are unique across
+## those files. With the list form only the last file takes effect.
+extraObjects: {}
+  # osh_secrets_store:
+  #   apiVersion: secrets-store.csi.x-k8s.io/v1
+  #   kind: SecretProviderClass
+  #   metadata:
+  #     name: osh-secrets-store
+  #   spec:
+  #     provider: aws
+  #     parameters:
+  #       objects: |
+  #         - objectName: "osh"
+  #           objectType: "secretsmanager"
+  #           jmesPath:
+  #               - path: "client_id"
+  #                 objectAlias: "client_id"
+  #               - path: "client_secret"
+  #                 objectAlias: "client_secret"
+  #     secretObjects:
+  #     - data:
+  #       - key: client_id
+  #         objectName: client_id
+  #       - key: client_secret
+  #         objectName: client_secret
+  #       secretName: osh-secrets-store
+  #       type: Opaque
+  #       labels:
+  #         app.kubernetes.io/part-of: osh
 ...

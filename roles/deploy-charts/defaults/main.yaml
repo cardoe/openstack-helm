@@ -1,0 +1,104 @@
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+---
+osh_helm_repo: "{{ ansible_facts['user_dir'] }}/{{ zuul.project.src_dir }}/../openstack-helm"
+osh_git_repo: "{{ ansible_facts['user_dir'] }}/{{ zuul.project.src_dir }}/../openstack-helm"
+osh_values_overrides_path: "{{ osh_git_repo }}/values_overrides"
+osh_values_overrides: []
+osh_namespace: osh
+osh_create_namespace: true
+osh_helm_timeout: 600
+osh_openstack_client_image_tag: 2026.1-ubuntu_noble
+osh_helm_tests_tries: 2
+osh_test_timeout: 1200
+# Directory on the target node into which _script.yaml stages the shell
+# scripts shipped in this role's files/ directory before running them. Also
+# the working directory they run in, so anything a script writes beside
+# itself (the Octavia dual_ca tree, for one) lands here and not in the git
+# checkout.
+osh_scripts_dir: /tmp/osh-scripts
+
+# Where the stateful charts put their data.
+#
+# When Ceph is deployed, Rook creates the "general" StorageClass (the cluster
+# default, backed by the rbd CephBlockPool) and the stateful charts take real
+# PersistentVolumes from it -- which is what a real deployment looks like, and
+# the only way the Ceph CSI path gets exercised at all.
+#
+# Off by default, and deliberately not derived from cinder_enabled here: most
+# playbooks deploy mariadb or glance without deploying Ceph at all, never set
+# cinder_enabled, and have no StorageClass in the cluster, so a claim would sit
+# Pending until the job times out. A playbook that does deploy Rook opts in by
+# setting this -- see playbooks/deploy-compute-kit.yaml.
+osh_ceph_storage: false
+# The StorageClass Rook creates; matches class_name in the chart values.
+osh_ceph_storage_class: general
+
+# TLS settings for OpenStack client (clouds.yaml)
+osh_openstack_client_tls: false
+osh_openstack_client_tls_ca_cert_path: "/etc/openstack/ca.pem"
+osh_openstack_client_tls_ca_cert_secret_namespace: cert-manager
+osh_openstack_client_tls_ca_cert_secret_name: selfsigned-ca-key-pair
+osh_openstack_client_tls_ca_cert_secret_key: ca.crt
+# CA-only secret (just ca.crt, no private key) provisioned into the workload
+# namespace so charts can trust outbound TLS endpoints (secrets.tls.ca) without
+# mounting any server/CA private key. Derived from the ca-issuer CA above.
+osh_openstack_client_tls_namespace_ca_secret_name: openstack-helm-ca
+
+# mariadb-operator defaults. Used only by the jobs that provision databases
+# declaratively through custom resources instead of the per-chart db-init job.
+# Keep the version at or below 0.34.0 or add an install of the separate
+# mariadb-operator-crds chart: the CRDs were split out in 0.35.0.
+osh_mariadb_operator_version: "0.31.0"
+osh_mariadb_operator_namespace: mariadb-operator
+osh_mariadb_operator_instance: mariadb
+osh_mariadb_operator_image: "docker.io/library/mariadb:11.4"
+# The operator always mounts a PVC, so the playbook provisions a host-path
+# volume for it to bind to: the deploy-env cluster has no storage class.
+osh_mariadb_operator_storage_size: 5Gi
+osh_mariadb_operator_storage_class: mariadb-local
+osh_mariadb_operator_storage_path: /var/lib/osh-mariadb
+osh_mariadb_operator_root_secret: mariadb-root-password
+osh_mariadb_operator_root_password: password
+
+# RabbitMQ operator defaults. Used only by the job that provisions messaging
+# declaratively through custom resources reconciled by the upstream
+# messaging-topology-operator rather than by the rabbitmq chart's own topology
+# controller. That operator refuses to start without the cluster operator, so
+# both are installed, and it needs cert-manager for its webhook certificates,
+# which deploy-env installs when cert_manager_setup is true.
+osh_rabbitmq_cluster_operator_version: "v2.22.5"
+osh_rabbitmq_topology_operator_version: "v1.20.2"
+osh_rabbitmq_operator_namespace: rabbitmq-system
+# Named to match endpoints.oslo_messaging.hosts.default in every chart: the
+# cluster operator names its client service after the custom resource, and the
+# same name is what rabbitmqClusterReference resolves to, so no endpoint
+# overrides are needed beyond dropping the chart's statefulset addressing.
+osh_rabbitmq_operator_instance: rabbitmq
+osh_rabbitmq_operator_replicas: 1
+# "0" deactivates persistence and is what upstream recommends for test
+# deployments: the deploy-env cluster has no storage class, so a
+# PersistentVolumeClaim would stay Pending forever.
+osh_rabbitmq_operator_storage: "0"
+osh_rabbitmq_operator_cpu: "1000m"
+osh_rabbitmq_operator_memory: "2Gi"
+
+# Octavia defaults
+osh_octavia_lb_subnet: "172.31.0.0/24"
+osh_octavia_lb_subnet_start: "172.31.0.2"
+osh_octavia_lb_subnet_end: "172.31.0.200"
+osh_octavia_amphora_image_name: "amphora-x64-haproxy-ubuntu-jammy"
+osh_octavia_amphora_image_file: "test-only-amphora-x64-haproxy-ubuntu-jammy.qcow2"
+osh_octavia_amphora_image_url: "https://tarballs.opendev.org/openstack/octavia/test-images/test-only-amphora-x64-haproxy-ubuntu-jammy.qcow2"
+osh_octavia_test_image_name: "Ubuntu Jammy Minimal"
+osh_octavia_test_image_file: "ubuntu-22.04-minimal-cloudimg-amd64.img"
+osh_octavia_test_image_url: "https://cloud-images.ubuntu.com/minimal/releases/jammy/release/ubuntu-22.04-minimal-cloudimg-amd64.img"

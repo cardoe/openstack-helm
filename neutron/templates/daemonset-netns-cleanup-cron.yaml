@@ -62,11 +62,7 @@ spec:
         {{ .Values.labels.netns_cleanup_cron.node_selector_key }}: {{ .Values.labels.netns_cleanup_cron.node_selector_value }}
       dnsPolicy: ClusterFirstWithHostNet
       hostNetwork: true
-      {{- if or ( gt .Capabilities.KubeVersion.Major "1" ) ( ge .Capabilities.KubeVersion.Minor "10" ) }}
       shareProcessNamespace: true
-      {{- else }}
-      hostPID: true
-      {{- end }}
       initContainers:
 {{ tuple $envAll "pod_dependency" $mounts_neutron_netns_cleanup_cron_init | include "helm-toolkit.snippets.kubernetes_entrypoint_init_container" | indent 8 }}
       containers:
@@ -77,12 +73,14 @@ spec:
           command:
             - /tmp/neutron-netns-cleanup-cron.sh
           env:
-{{- with $env := dict "ksUserSecret" $envAll.Values.secrets.identity.admin "useCA" false }}
+{{- with $env := dict "ksUserSecret" $envAll.Values.secrets.identity.admin "useCA" false "envAll" $envAll }}
 {{- include "helm-toolkit.snippets.keystone_openrc_env_vars" $env | indent 12 }}
 {{- end }}
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: {{ .Values.conf.neutron.oslo_concurrency.lock_path }}
             - name: neutron-bin
               mountPath: /tmp/neutron-netns-cleanup-cron.sh
               subPath: neutron-netns-cleanup-cron.sh
@@ -145,6 +143,8 @@ spec:
       volumes:
         - name: pod-tmp
           emptyDir: {}
+        - name: oslo-lock-path
+          emptyDir: {}
         - name: pod-var-neutron
           emptyDir: {}
         - name: neutron-bin
@@ -155,11 +155,13 @@ spec:
           secret:
             secretName: {{ $configMapName }}
             defaultMode: 0444
-{{- if $etcSources }}
         - name: neutron-etc-snippets
+{{- if $etcSources }}
           projected:
             sources:
 {{ toYaml $etcSources | indent 14 }}
+{{- else }}
+          emptyDir: {}
 {{ end }}
         - name: libmodules
           hostPath:
@@ -192,4 +194,3 @@ spec:
 {{- $configmap_yaml := "neutron.configmap.etc" }}
 {{- list $daemonset $daemonset_yaml $configmap_yaml $configMapName . | include "helm-toolkit.utils.daemonset_overrides" }}
 {{- end }}
-

@@ -38,20 +38,20 @@ labels:
 images:
   tags:
     test: docker.io/xrally/xrally-openstack:2.0.0
-    bootstrap: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    db_init: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    heat_db_sync: quay.io/airshipit/heat:2025.1-ubuntu_noble
-    db_drop: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    rabbit_init: docker.io/rabbitmq:3.13-management
-    ks_user: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_service: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_endpoints: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    heat_api: quay.io/airshipit/heat:2025.1-ubuntu_noble
-    heat_cfn: quay.io/airshipit/heat:2025.1-ubuntu_noble
-    heat_engine: quay.io/airshipit/heat:2025.1-ubuntu_noble
-    heat_engine_cleaner: quay.io/airshipit/heat:2025.1-ubuntu_noble
-    heat_purge_deleted: quay.io/airshipit/heat:2025.1-ubuntu_noble
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
+    bootstrap: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    db_init: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    heat_db_sync: quay.io/airshipit/heat:2026.1-ubuntu_noble
+    db_drop: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    rabbit_init: docker.io/rabbitmq:4.3.5-management
+    ks_user: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_service: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_endpoints: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    heat_api: quay.io/airshipit/heat:2026.1-ubuntu_noble
+    heat_cfn: quay.io/airshipit/heat:2026.1-ubuntu_noble
+    heat_engine: quay.io/airshipit/heat:2026.1-ubuntu_noble
+    heat_engine_cleaner: quay.io/airshipit/heat:2026.1-ubuntu_noble
+    heat_purge_deleted: quay.io/airshipit/heat:2026.1-ubuntu_noble
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_noble
     image_repo_sync: docker.io/docker:17.07.0
   pull_policy: "IfNotPresent"
   local_registry:
@@ -277,22 +277,31 @@ conf:
               properties:
                 length: 40
   paste:
-    pipeline:heat-api:
-      pipeline: cors request_id faultwrap http_proxy_to_wsgi versionnegotiation osprofiler authurl authtoken audit context apiv1app
-    pipeline:heat-api-standalone:
-      pipeline: cors request_id faultwrap http_proxy_to_wsgi versionnegotiation authurl authpassword context apiv1app
-    pipeline:heat-api-custombackend:
-      pipeline: cors request_id faultwrap versionnegotiation context custombackendauth apiv1app
-    pipeline:heat-api-cfn:
-      pipeline: cors http_proxy_to_wsgi cfnversionnegotiation osprofiler ec2authtoken authtoken audit context apicfnv1app
-    pipeline:heat-api-cfn-standalone:
-      pipeline: cors http_proxy_to_wsgi cfnversionnegotiation ec2authtoken context apicfnv1app
+    composite:heat-api:
+      use: "egg:Paste#urlmap"
+      /: api
+      /healthcheck: healthcheck
+    composite:heat-api-cfn:
+      use: "egg:Paste#urlmap"
+      /: api-cfn
+      /healthcheck: healthcheck
+    composite:api:
+      paste.composite_factory: heat.api:pipeline_factory
+      default: cors request_id faultwrap http_proxy_to_wsgi versionnegotiation authurl authtoken audit context osprofiler apiv1app
+      standalone: cors request_id faultwrap http_proxy_to_wsgi versionnegotiation authurl authpassword context apiv1app
+      custombackend: cors request_id context faultwrap versionnegotiation custombackendauth apiv1app
+    composite:api-cfn:
+      paste.composite_factory: heat.api:pipeline_factory
+      default: cors request_id http_proxy_to_wsgi cfnversionnegotiation ec2authtoken authtoken audit context osprofiler apicfnv1app
+      standalone: cors request_id http_proxy_to_wsgi cfnversionnegotiation ec2authtoken context apicfnv1app
     app:apiv1app:
       paste.app_factory: heat.common.wsgi:app_factory
       heat.app_factory: heat.api.openstack.v1:API
     app:apicfnv1app:
       paste.app_factory: heat.common.wsgi:app_factory
       heat.app_factory: heat.api.cfn.v1:API
+    app:healthcheck:
+      paste.app_factory: oslo_middleware:Healthcheck.app_factory
     filter:versionnegotiation:
       paste.filter_factory: heat.common.wsgi:filter_factory
       heat.filter_factory: heat.api.openstack:version_negotiation_filter
@@ -305,6 +314,8 @@ conf:
     filter:cfnversionnegotiation:
       paste.filter_factory: heat.common.wsgi:filter_factory
       heat.filter_factory: heat.api.cfn:version_negotiation_filter
+    filter:cwversionnegotiation:
+      paste.filter_factory: heat.common.wsgi:filter_factory
     filter:context:
       paste.filter_factory: heat.common.context:ContextMiddleware_filter_factory
     filter:ec2authtoken:
@@ -340,6 +351,11 @@ conf:
       service_type: orchestration
     database:
       max_retries: -1
+      # -- Database connection URI. When empty the URI is auto-generated
+      ## from endpoints.oslo_db. Set to null to disable auto-generation,
+      ## e.g. when using an operator such as mariadb-operator that supplies
+      ## the connection string via a mounted configuration snippet.
+      connection: ""
     trustee:
       auth_type: password
       auth_version: v3
@@ -366,9 +382,21 @@ conf:
     oslo_middleware:
       enable_proxy_headers_parsing: true
     oslo_messaging_rabbit:
-      rabbit_ha_queues: True
+      rabbit_ha_queues: false
+      # -- Durable queues are required by RabbitMQ 4.x, which denies
+      ## transient non-exclusive queues by default. Also valid on 3.x.
+      amqp_durable_queues: true
+      # -- Quorum queues, which RabbitMQ 4.x requires: it denies transient
+      ## non-exclusive queues, and oslo.messaging declares its reply and fanout
+      ## queues that way unless the transient ones are quorum too.
+      ## amqp_durable_queues alone only covers the RPC and notification queues.
+      rabbit_quorum_queue: true
+      rabbit_transient_quorum_queue: true
+      use_queue_manager: true
     oslo_policy:
       policy_file: /etc/heat/policy.yaml
+    oslo_concurrency:
+      lock_path: /var/lock
   api_audit_map:
     DEFAULT:
       target_endpoint_type: None
@@ -458,14 +486,11 @@ conf:
       datefmt: "%Y-%m-%d %H:%M:%S"
 
   rabbitmq:
-    # NOTE(rk760n): adding rmq policy to mirror messages from notification queues and set expiration time for the ones
+    # NOTE(rk760n): adding rmq policy to set an expiration time on notification queues
     policies:
       - vhost: "heat"
         name: "ha_ttl_heat"
         definition:
-          # mirror messges to other nodes in rmq cluster
-          ha-mode: "all"
-          ha-sync-mode: "automatic"
           # 70s
           message-ttl: 70000
         priority: 0
@@ -482,11 +507,12 @@ conf:
       lazy-apps: true
       log-x-forwarded-for: true
       master: true
+      need-app: true
       procname-prefix-spaced: "heat-api:"
       route-user-agent: '^kube-probe.* donotlog:'
       thunder-lock: true
       worker-reload-mercy: 80
-      wsgi-file: /var/lib/openstack/bin/heat-wsgi-api
+      module: heat.wsgi.api:application
       stats: 0.0.0.0:1717
       stats-http: true
   heat_api_cfn_uwsgi:
@@ -500,37 +526,28 @@ conf:
       lazy-apps: true
       log-x-forwarded-for: true
       master: true
+      need-app: true
       procname-prefix-spaced: "heat-api-cfn:"
       route-user-agent: '^kube-probe.* donotlog:'
       thunder-lock: true
       worker-reload-mercy: 80
-      wsgi-file: /var/lib/openstack/bin/heat-wsgi-api-cfn
+      module: heat.wsgi.cfn:application
       stats: 0.0.0.0:1717
       stats-http: true
 
 network:
   api:
-    ingress:
-      public: true
-      classes:
-        namespace: "ingress-openstack"
-        cluster: "ingress-cluster"
-      annotations:
-        nginx.ingress.kubernetes.io/rewrite-target: /
-        haproxy.org/path-rewrite: /
+    # Pod port the Service routes to; null => Kubernetes uses the Service port.
+    # A deployment override sets this (e.g. 443) to point at a TLS sidecar.
+    target_port: null
     external_policy_local: false
     node_port:
       enabled: false
       port: 30004
   cfn:
-    ingress:
-      public: true
-      classes:
-        namespace: "ingress-openstack"
-        cluster: "ingress-cluster"
-      annotations:
-        nginx.ingress.kubernetes.io/rewrite-target: /
-        haproxy.org/path-rewrite: /
+    # Pod port the Service routes to; null => Kubernetes uses the Service port.
+    # A deployment override sets this (e.g. 443) to point at a TLS sidecar.
+    target_port: null
     node_port:
       enabled: false
       port: 30800
@@ -690,23 +707,31 @@ secrets:
     test: heat-keystone-test
   oslo_db:
     admin: heat-db-admin
-    heat: heat-db-user
   oslo_messaging:
     admin: heat-rabbitmq-admin
     heat: heat-rabbitmq-user
   tls:
-    orchestration:
-      api:
-        public: heat-tls-public
-        internal: heat-tls-api
-    cloudformation:
-      cfn:
-        public: cloudformation-tls-public
-        internal: heat-tls-cfn
+    # Client certificate this chart presents for all mTLS backend connections
+    # (MariaDB and RabbitMQ). Separate from the MariaDB and RabbitMQ server certs.
+    client:
+      heat: heat-client
+    # CA bundle this chart trusts for OUTBOUND TLS calls (keystone). Null by
+    # default -> no CA is mounted and REQUESTS_CA_BUNDLE is left unset. A
+    # deployment override points this at a cert-manager CA-only secret carrying
+    # just ca.crt (no private key); it is mounted at
+    # /etc/ssl/certs/openstack-helm.crt. Assumes every server cert is signed by
+    # this single CA. The chart stays TLS-agnostic -- server certs and the nginx
+    # TLS sidecar live in the override.
+    ca: null
   oci_image_registry:
     heat: heat-oci-image-registry
 
 # typically overridden by environmental
+identity:
+  openrc:
+    exclude_vars: []
+    extra_vars: []
+
 # values, but should include all endpoints
 # required by this chart
 endpoints:
@@ -807,6 +832,7 @@ endpoints:
       #     key: null
     path:
       default: '/v1/%(project_id)s'
+      healthcheck: /healthcheck
     scheme:
       default: 'http'
       service: 'http'
@@ -831,6 +857,7 @@ endpoints:
       #     key: null
     path:
       default: /v1
+      healthcheck: /healthcheck
     scheme:
       default: 'http'
       service: 'http'
@@ -844,9 +871,6 @@ endpoints:
       admin:
         username: root
         password: password
-        secret:
-          tls:
-            internal: mariadb-tls-direct
       heat:
         username: heat
         password: password
@@ -879,9 +903,6 @@ endpoints:
       admin:
         username: rabbitmq
         password: password
-        secret:
-          tls:
-            internal: rabbitmq-tls-direct
       heat:
         username: heat
         password: password
@@ -930,16 +951,17 @@ endpoints:
       dns:
         default: 53
         protocol: UDP
-  ingress:
-    namespace: null
-    name: ingress
-    hosts:
-      default: ingress
-    port:
-      ingress:
-        default: 80
 
 pod:
+  # Extra sidecar containers and volumes to inject into the heat-api and
+  # heat-cfn Deployments. Used e.g. by values_overrides/heat/api-tls.yaml to
+  # add nginx TLS-terminating sidecars. Keyed per component.
+  extraContainers:
+    heat_api: []
+    heat_cfn: []
+  extraVolumes:
+    heat_api: []
+    heat_cfn: []
   security_context:
     heat:
       pod:
@@ -1038,6 +1060,16 @@ pod:
       heat_db_sync:
         volumeMounts:
         volumes:
+  # -- This allows users to add Kubernetes Projected Volumes to be mounted at /etc/heat/heat.conf.d/
+  ## This is a list of projected volume source objects for each deployment/statefulset/daemonset/cronjob
+  ## https://kubernetes.io/docs/concepts/storage/projected-volumes/
+  etcSources:
+    heat_api: []
+    heat_cfn: []
+    heat_engine: []
+    heat_engine_cleaner: []
+    heat_purge_deleted: []
+    heat_db_sync: []
   replicas:
     api: 1
     cfn: 1
@@ -1181,11 +1213,23 @@ pod:
     api:
       heat_api:
         liveness:
+          enabled: true
           port: 1717
+          params:
+            initialDelaySeconds: 10
+        readiness:
+          enabled: true
+          params:
+            initialDelaySeconds: 30
     cfn:
       heat_cfn:
         liveness:
+          enabled: true
           port: 1717
+          params:
+            initialDelaySeconds: 10
+        readiness:
+          enabled: true
 
 network_policy:
   heat:
@@ -1194,17 +1238,38 @@ network_policy:
     egress:
       - {}
 
-# NOTE(helm_hook): helm_hook might break for helm2 binary.
-# set helm3_hook: false when using the helm2 binary.
-helm3_hook: true
-
 tls:
-  identity: false
   oslo_messaging: false
   oslo_db: false
 
+rabbitmq_topology:
+  # -- API group of the RabbitMQ topology custom resources this chart renders
+  ## when manifests.rabbitmq_topology is enabled. Either group works: the
+  ## resources are the same, only who reconciles them differs.
+  ##   rabbitmq.osh.openstack.org -- the rabbitmq chart's own topology
+  ##                                 controller
+  ##                                 (manifests.deployment_topology_controller)
+  ##   rabbitmq.com               -- the upstream messaging-topology-operator,
+  ##                                 which must then be deployed separately,
+  ##                                 along with a RabbitmqCluster named after
+  ##                                 endpoints.oslo_messaging.hosts.default for
+  ##                                 rabbitmqClusterReference to resolve to
+  api_group: rabbitmq.osh.openstack.org
+
+mariadb_db:
+  # -- API group of the MariaDB custom resources this chart renders when
+  ## manifests.mariadb_db is enabled. Either group works: the resources are
+  ## the same, only who reconciles them differs.
+  ##   mariadb.osh.openstack.org -- the mariadb chart's own db controller
+  ##                                (manifests.deployment_db_controller)
+  ##   k8s.mariadb.com           -- the upstream mariadb-operator, which must
+  ##                                then be deployed separately
+  ## With k8s.mariadb.com and tls.oslo_db enabled, use mariadb-operator 0.37.0
+  ## or newer. User.spec.require was added in that release, so older operators
+  ## drop it and create accounts without REQUIRE X509.
+  api_group: mariadb.osh.openstack.org
+
 manifests:
-  certificates: false
   configmap_bin: true
   configmap_etc: true
   cron_job_engine_cleaner: true
@@ -1212,10 +1277,12 @@ manifests:
   deployment_api: true
   deployment_cfn: true
   deployment_engine: true
-  ingress_api: true
-  ingress_cfn: true
   job_bootstrap: true
   job_db_init: true
+  # -- Render the MariaDB Database/User/Grant/Connection custom resources
+  ## reconciled by the mariadb chart's db controller, instead of running the
+  ## db-init job. Mutually exclusive with job_db_init.
+  mariadb_db: false
   job_db_sync: true
   job_db_drop: false
   job_image_repo_sync: true
@@ -1229,14 +1296,50 @@ manifests:
   pdb_cfn: true
   pod_rally_test: true
   network_policy: false
+  # -- Declare this chart's messaging vhost, account and permissions
+  ## as RabbitMQ custom resources reconciled by the rabbitmq chart's
+  ## topology controller, instead of running the rabbit_init job. The
+  ## two are mutually exclusive.
+  rabbitmq_topology: false
   secret_db: true
-  secret_ingress_tls: true
   secret_keystone: true
   secret_rabbitmq: true
   secret_registry: true
   service_api: true
   service_cfn: true
-  service_ingress_api: true
-  service_ingress_cfn: true
   statefulset_engine: false
+
+# -- Extra K8s manifests to deploy. Either a list or a map of manifests.
+## Note: Supports use of custom Helm templates
+## Note: Helm replaces (instead of merging) list values when several values
+## files are combined, so if you need to define extraObjects in more than one
+## overrides file, use the map form and make sure the keys are unique across
+## those files. With the list form only the last file takes effect.
+extraObjects: {}
+  # osh_secrets_store:
+  #   apiVersion: secrets-store.csi.x-k8s.io/v1
+  #   kind: SecretProviderClass
+  #   metadata:
+  #     name: osh-secrets-store
+  #   spec:
+  #     provider: aws
+  #     parameters:
+  #       objects: |
+  #         - objectName: "osh"
+  #           objectType: "secretsmanager"
+  #           jmesPath:
+  #               - path: "client_id"
+  #                 objectAlias: "client_id"
+  #               - path: "client_secret"
+  #                 objectAlias: "client_secret"
+  #     secretObjects:
+  #     - data:
+  #       - key: client_id
+  #         objectName: client_id
+  #       - key: client_secret
+  #         objectName: client_secret
+  #       secretName: osh-secrets-store
+  #       type: Opaque
+  #       labels:
+  #         app.kubernetes.io/part-of: osh
 ...

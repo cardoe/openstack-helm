@@ -38,25 +38,30 @@ labels:
 
 release_group: null
 
-# NOTE(philsphicas): the pre-install hook breaks upgrade for helm2
-# Set to false to upgrade using helm2
-helm3_hook: true
+jobs:
+  db_purge:
+    cron: "0 0 * * *"
+    starting_deadline: 600
+    history:
+      success: 3
+      failed: 1
 
 images:
   tags:
-    bootstrap: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
-    db_init: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    manila_db_sync: quay.io/airshipit/manila:2025.1-ubuntu_noble
-    db_drop: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_user: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_service: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_endpoints: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    manila_api: quay.io/airshipit/manila:2025.1-ubuntu_noble
-    manila_data: quay.io/airshipit/manila:2025.1-ubuntu_noble
-    manila_scheduler: quay.io/airshipit/manila:2025.1-ubuntu_noble
-    manila_share: quay.io/airshipit/manila:2025.1-ubuntu_noble
-    rabbit_init: docker.io/rabbitmq:3.13-management
+    bootstrap: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_noble
+    db_init: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    manila_db_sync: quay.io/airshipit/manila:2026.1-ubuntu_noble
+    db_drop: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_user: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_service: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_endpoints: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    manila_api: quay.io/airshipit/manila:2026.1-ubuntu_noble
+    manila_data: quay.io/airshipit/manila:2026.1-ubuntu_noble
+    manila_scheduler: quay.io/airshipit/manila:2026.1-ubuntu_noble
+    manila_share: quay.io/airshipit/manila:2026.1-ubuntu_noble
+    manila_db_purge: quay.io/airshipit/manila:2026.1-ubuntu_noble
+    rabbit_init: docker.io/rabbitmq:4.3.5-management
     image_repo_sync: docker.io/docker:17.07.0
   pull_policy: "IfNotPresent"
   local_registry:
@@ -83,6 +88,13 @@ pod:
         manila_share:
           readOnlyRootFilesystem: true
           privileged: true
+    db_purge:
+      pod:
+        runAsUser: 42424
+      container:
+        manila_db_purge:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
     test:
       pod:
         runAsUser: 42424
@@ -146,6 +158,21 @@ pod:
       manila_db_sync:
         volumeMounts:
         volumes:
+    manila_db_purge:
+      init_container: null
+      manila_db_purge:
+        volumeMounts:
+        volumes:
+  # -- This allows users to add Kubernetes Projected Volumes to be mounted at /etc/manila/manila.conf.d/
+  ## This is a list of projected volume source objects for each deployment/statefulset/daemonset/cronjob
+  ## https://kubernetes.io/docs/concepts/storage/projected-volumes/
+  etcSources:
+    manila_api: []
+    manila_scheduler: []
+    manila_data: []
+    manila_share: []
+    manila_db_sync: []
+    manila_db_purge: []
   replicas:
     api: 1
     data: 1
@@ -166,6 +193,9 @@ pod:
         min_available: 0
       share:
         min_available: 0
+    termination_grace_period:
+      api:
+        timeout: 30
   resources:
     enabled: false
     api:
@@ -212,6 +242,13 @@ pod:
           memory: "1024Mi"
           cpu: "2000m"
       db_sync:
+        requests:
+          memory: "128Mi"
+          cpu: "100m"
+        limits:
+          memory: "1024Mi"
+          cpu: "2000m"
+      db_purge:
         requests:
           memory: "128Mi"
           cpu: "100m"
@@ -270,14 +307,6 @@ pod:
 
 network:
   api:
-    ingress:
-      public: true
-      classes:
-        namespace: "ingress-openstack"
-        cluster: "ingress-cluster"
-      annotations:
-        nginx.ingress.kubernetes.io/rewrite-target: /
-        haproxy.org/path-rewrite: /
     external_policy_local: false
     node_port:
       enabled: false
@@ -313,6 +342,9 @@ bootstrap:
         image_type: qcow2
         container_format: bare
         private: false
+
+ceph_client:
+  configmap: ceph-etc
 
 dependencies:
   dynamic:
@@ -388,6 +420,18 @@ dependencies:
       services:
         - endpoint: internal
           service: oslo_db
+    db_purge:
+      jobs:
+        - manila-db-sync
+        - manila-db-init
+        - manila-ks-user
+        - manila-ks-endpoints
+        - manila-rabbit-init
+      services:
+        - endpoint: internal
+          service: oslo_db
+        - endpoint: internal
+          service: identity
     image_repo_sync:
       services:
         - endpoint: internal
@@ -413,27 +457,22 @@ dependencies:
 
 conf:
   paste:
+    # NOTE: The legacy v1 share API (manila.api.v1) was removed upstream;
+    # leaving any references to it here (composite:openstack_share_api,
+    # app:api, filter:noauth) makes paste.deploy try to import the
+    # missing module and uWSGI fails with "no python application found".
     composite:osapi_share:
       use: call:manila.api:root_app_factory
       /: apiversions
       /healthcheck: healthcheck
-      /v1: openstack_share_api
       /v2: openstack_share_api_v2
-    composite:openstack_share_api:
-      use: call:manila.api.middleware.auth:pipeline_factory
-      noauth: cors faultwrap http_proxy_to_wsgi sizelimit osprofiler noauth api
-      keystone: cors faultwrap http_proxy_to_wsgi sizelimit osprofiler authtoken keystonecontext api
-      keystone_nolimit: cors faultwrap http_proxy_to_wsgi sizelimit osprofiler authtoken keystonecontext api
     composite:openstack_share_api_v2:
       use: call:manila.api.middleware.auth:pipeline_factory
-      noauth: cors faultwrap http_proxy_to_wsgi sizelimit osprofiler noauth apiv2
       noauthv2: cors faultwrap http_proxy_to_wsgi sizelimit osprofiler noauthv2 apiv2
       keystone: cors faultwrap http_proxy_to_wsgi sizelimit osprofiler authtoken keystonecontext apiv2
       keystone_nolimit: cors faultwrap http_proxy_to_wsgi sizelimit osprofiler authtoken keystonecontext apiv2
     filter:faultwrap:
       paste.filter_factory: manila.api.middleware.fault:FaultWrapper.factory
-    filter:noauth:
-      paste.filter_factory: manila.api.middleware.auth:NoAuthMiddleware.factory
     filter:noauthv2:
       paste.filter_factory: manila.api.middleware.auth:NoAuthMiddlewarev2_60.factory
     filter:sizelimit:
@@ -442,8 +481,6 @@ conf:
       paste.filter_factory: osprofiler.web:WsgiMiddleware.factory
     filter:http_proxy_to_wsgi:
       paste.filter_factory: oslo_middleware.http_proxy_to_wsgi:HTTPProxyToWSGI.factory
-    app:api:
-      paste.app_factory: manila.api.v1.router:APIRouter.factory
     app:apiv2:
       paste.app_factory: manila.api.v2.router:APIRouter.factory
     pipeline:apiversions:
@@ -704,6 +741,23 @@ conf:
       api_paste_config: /etc/manila/api-paste.ini
       enabled_share_backends: generic
       enabled_share_protocols: NFS
+      cephfs_auth_id: manila
+      # uWSGI `processes` is templated from this value. If unset, the
+      # rendered manila-api-uwsgi.ini gets `processes = <no value>` and
+      # uWSGI starts in no-workers mode (master only, no request workers),
+      # so the API socket binds but no request is ever served. Matches
+      # the default in cinder (osapi_volume_workers) and nova
+      # (osapi_compute_workers).
+      osapi_share_workers: 1
+      # NOTE: A static `host` value pins the manila-share service identity so
+      # it survives pod restarts. It is only safe with `pod.replicas.share: 1`,
+      # because every pod would register under the same host name and compete
+      # for the same RPC queue, periodic tasks, and (without a Tooz backend)
+      # uncoordinated locks. To scale `manila-share` beyond one replica, set
+      # this to null/empty and enable `manifests.statefulset_share: true`;
+      # the StatefulSet gives each pod a stable, unique hostname
+      # (manila-share-0, manila-share-1, ...) that is used as the host value.
+      host: manila-share-worker
     keystone_authtoken:
       auth_type: password
       auth_version: v3
@@ -732,6 +786,13 @@ conf:
       endpoint_type: internalURL
     database:
       max_retries: -1
+      # -- Database connection URI. When empty the URI is auto-generated
+      ## from endpoints.oslo_db. Set to null to disable auto-generation,
+      ## e.g. when using an operator such as mariadb-operator that supplies
+      ## the connection string via a mounted configuration snippet.
+      connection: ""
+    db_purge:
+      before: 30
     generic:
       share_backend_name: GENERIC
       share_driver: manila.share.drivers.generic.GenericShareDriver
@@ -756,13 +817,23 @@ conf:
     oslo_policy:
       policy_file: /etc/manila/policy.yaml
     oslo_concurrency:
-      lock_path: /var/lib/manila/tmp
+      lock_path: /var/lock
     oslo_messaging_notifications:
       driver: messagingv2
     oslo_middleware:
       enable_proxy_headers_parsing: true
     oslo_messaging_rabbit:
-      rabbit_ha_queues: true
+      rabbit_ha_queues: false
+      # -- Durable queues are required by RabbitMQ 4.x, which denies
+      ## transient non-exclusive queues by default. Also valid on 3.x.
+      amqp_durable_queues: true
+      # -- Quorum queues, which RabbitMQ 4.x requires: it denies transient
+      ## non-exclusive queues, and oslo.messaging declares its reply and fanout
+      ## queues that way unless the transient ones are quorum too.
+      ## amqp_durable_queues alone only covers the RPC and notification queues.
+      rabbit_quorum_queue: true
+      rabbit_transient_quorum_queue: true
+      use_queue_manager: true
   logging:
     loggers:
       keys:
@@ -862,6 +933,7 @@ conf:
       lazy-apps: true
       log-x-forwarded-for: true
       master: true
+      need-app: true
       procname-prefix-spaced: "manila-api:"
       route-user-agent: '^kube-probe.* donotlog:'
       thunder-lock: true
@@ -878,17 +950,26 @@ secrets:
     test: manila-keystone-test
   oslo_db:
     admin: manila-db-admin
-    manila: manila-db-user
+  rbd: manila-keyring
   oslo_messaging:
     admin: manila-rabbitmq-admin
     manila: manila-rabbitmq-user
   tls:
+    # Client certificate this chart presents for all mTLS backend connections
+    # (MariaDB and RabbitMQ). Separate from the MariaDB and RabbitMQ server certs.
+    client:
+      manila: manila-client
     share:
       api:
         public: manila-tls-public
         internal: manila-tls-internal
   oci_image_registry:
     manila: manila-oci-image-registry
+
+identity:
+  openrc:
+    exclude_vars: []
+    extra_vars: []
 
 endpoints:
   cluster_domain_suffix: cluster.local
@@ -958,24 +1039,6 @@ endpoints:
       api:
         default: 80
         internal: 5000
-  share:
-    name: manila
-    hosts:
-      default: manila-api
-      public: manila
-    host_fqdn_override:
-      default: null
-    path:
-      default: '/v1'
-      healthcheck: /healthcheck
-    scheme:
-      default: http
-      service: http
-    port:
-      api:
-        default: 8786
-        public: 80
-        service: 8786
   sharev2:
     name: manilav2
     hosts:
@@ -985,6 +1048,7 @@ endpoints:
       default: null
     path:
       default: '/v2'
+      healthcheck: /healthcheck
     scheme:
       default: http
       service: http
@@ -998,9 +1062,6 @@ endpoints:
       admin:
         username: root
         password: password
-        secret:
-          tls:
-            internal: mariadb-tls-direct
       manila:
         username: manila
         password: password
@@ -1018,9 +1079,6 @@ endpoints:
       admin:
         username: rabbitmq
         password: password
-        secret:
-          tls:
-            internal: rabbitmq-tls-direct
       manila:
         username: manila
         password: password
@@ -1084,14 +1142,6 @@ endpoints:
       dns:
         default: 53
         protocol: UDP
-  ingress:
-    namespace: null
-    name: ingress
-    hosts:
-      default: ingress
-    port:
-      ingress:
-        default: 80
 
 tls:
   identity: false
@@ -1102,11 +1152,17 @@ manifests:
   certificates: false
   configmap_bin: true
   configmap_etc: true
+  cron_db_purge: false
   deployment_api: true
   deployment_scheduler: true
   deployment_data: true
   deployment_share: true
-  ingress_api: true
+  # NOTE: When `statefulset_share` is enabled, the `deployment_share` manifest
+  # is automatically disabled. The StatefulSet gives each pod a stable, unique
+  # hostname (manila-share-0, manila-share-1, ...) which is required to scale
+  # `manila-share` beyond one replica. Also set `conf.manila.DEFAULT.host` to
+  # null/empty so each pod uses its own pod name as the host value.
+  statefulset_share: false
   job_bootstrap: true
   job_db_init: true
   job_db_sync: true
@@ -1120,10 +1176,42 @@ manifests:
   pod_rally_test: true
   secret_db: true
   network_policy: false
-  secret_ingress_tls: true
   secret_keystone: true
   secret_rabbitmq: true
   secret_registry: true
-  service_ingress_api: true
   service_api: true
+
+# -- Extra K8s manifests to deploy. Either a list or a map of manifests.
+## Note: Supports use of custom Helm templates
+## Note: Helm replaces (instead of merging) list values when several values
+## files are combined, so if you need to define extraObjects in more than one
+## overrides file, use the map form and make sure the keys are unique across
+## those files. With the list form only the last file takes effect.
+extraObjects: {}
+  # osh_secrets_store:
+  #   apiVersion: secrets-store.csi.x-k8s.io/v1
+  #   kind: SecretProviderClass
+  #   metadata:
+  #     name: osh-secrets-store
+  #   spec:
+  #     provider: aws
+  #     parameters:
+  #       objects: |
+  #         - objectName: "osh"
+  #           objectType: "secretsmanager"
+  #           jmesPath:
+  #               - path: "client_id"
+  #                 objectAlias: "client_id"
+  #               - path: "client_secret"
+  #                 objectAlias: "client_secret"
+  #     secretObjects:
+  #     - data:
+  #       - key: client_id
+  #         objectName: client_id
+  #       - key: client_secret
+  #         objectName: client_secret
+  #       secretName: osh-secrets-store
+  #       type: Opaque
+  #       labels:
+  #         app.kubernetes.io/part-of: osh
 ...

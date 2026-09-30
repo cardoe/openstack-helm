@@ -14,11 +14,33 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */}}
 
+{{- define "placementLivenessProbeTemplate" }}
+httpGet:
+  scheme: {{ tuple "placement" "service" "api" . | include "helm-toolkit.endpoints.keystone_endpoint_scheme_lookup" | upper }}
+  path: /
+  {{- if .Values.pod.probes.placement.api.liveness.port }}
+  port: {{ .Values.pod.probes.placement.api.liveness.port }}
+  {{- else }}
+  port: {{ tuple "placement" "service" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
+  {{- end }}
+{{- end }}
+
+{{- define "placementReadinessProbeTemplate" }}
+httpGet:
+  scheme: {{ tuple "placement" "service" "api" . | include "helm-toolkit.endpoints.keystone_endpoint_scheme_lookup" | upper }}
+  path: /
+  port: {{ tuple "placement" "service" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
+{{- end }}
+
 {{- if .Values.manifests.deployment }}
 {{- $envAll := . }}
 
 {{- $mounts_placement := .Values.pod.mounts.placement.placement }}
 {{- $mounts_placement_init := .Values.pod.mounts.placement.init_container }}
+{{- $etcSources := .Values.pod.etcSources.placement }}
+{{- if eq .Values.manifests.secret_ks_etc true }}
+{{- $etcSources = append $etcSources (dict "secret" (dict "name" "placement-ks-etc")) }}
+{{- end }}
 
 {{- $serviceAccountName := "placement-api" }}
 {{ tuple $envAll "api" $serviceAccountName | include "helm-toolkit.snippets.kubernetes_pod_rbac_serviceaccount" }}
@@ -80,53 +102,31 @@ spec:
 {{ tuple $envAll "placement" | include "helm-toolkit.snippets.image" | indent 10 }}
 {{ tuple $envAll $envAll.Values.pod.resources.api | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
 {{ dict "envAll" $envAll "application" "placement" "container" "placement_api" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
-{{- if or .Values.manifests.certificates .Values.tls.identity }}
+{{- if .Values.secrets.tls.ca }}
           env:
             - name: REQUESTS_CA_BUNDLE
-              value: "/etc/placement/certs/ca.crt"
+              value: "/etc/ssl/certs/openstack-helm.crt"
 {{- end }}
           command:
-            - /tmp/placement-api.sh
-            - start
-          lifecycle:
-            preStop:
-              exec:
-                command:
-                  - /tmp/placement-api.sh
-                  - stop
+            - uwsgi
+            - --ini
+            - /etc/placement/placement-api-uwsgi.ini
           ports:
             - name: p-api
               containerPort: {{ tuple "placement" "service" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
-          readinessProbe:
-            httpGet:
-              scheme: {{ tuple "placement" "service" "api" . | include "helm-toolkit.endpoints.keystone_endpoint_scheme_lookup" | upper }}
-              path: /
-              port: {{ tuple "placement" "service" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
-            initialDelaySeconds: 5
-            periodSeconds: 10
-          livenessProbe:
-            httpGet:
-              scheme: {{ tuple "placement" "service" "api" . | include "helm-toolkit.endpoints.keystone_endpoint_scheme_lookup" | upper }}
-              path: /
-              {{- if .Values.pod.probes.placement.api.liveness.port }}
-              port: {{ .Values.pod.probes.placement.api.liveness.port }}
-              {{- else }}
-              port: {{ tuple "placement" "service" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
-              {{- end }}
-            initialDelaySeconds: 5
-            periodSeconds: 10
+{{ dict "envAll" $envAll "component" "placement" "container" "api" "type" "readiness" "probeTemplate" (include "placementReadinessProbeTemplate" $envAll | fromYaml) | include "helm-toolkit.snippets.kubernetes_probe" | indent 10 }}
+{{ dict "envAll" $envAll "component" "placement" "container" "api" "type" "liveness" "probeTemplate" (include "placementLivenessProbeTemplate" $envAll | fromYaml) | include "helm-toolkit.snippets.kubernetes_probe" | indent 10 }}
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
-            - name: wsgi-placement
-              mountPath: /var/www/cgi-bin/placement
-            - name: placement-bin
-              mountPath: /tmp/placement-api.sh
-              subPath: placement-api.sh
-              readOnly: true
+            - name: oslo-lock-path
+              mountPath: {{ .Values.conf.placement.oslo_concurrency.lock_path }}
             - name: placement-etc
               mountPath: /etc/placement/placement.conf
               subPath: placement.conf
+              readOnly: true
+            - name: placement-etc-snippets
+              mountPath: /etc/placement/placement.conf.d/
               readOnly: true
             - name: placement-etc
               mountPath: /etc/placement/placement-api-uwsgi.ini
@@ -142,21 +142,20 @@ spec:
               mountPath: /etc/placement/policy.yaml
               subPath: policy.yaml
               readOnly: true
-            - name: placement-etc
-              mountPath: /etc/apache2/conf-enabled/wsgi-placement.conf
-              subPath: wsgi-placement.conf
-              readOnly: true
             {{- if .Values.conf.placement.DEFAULT.log_dir }}
             - name: log
               mountPath: {{ .Values.conf.placement.DEFAULT.log_dir }}
             {{- end }}
-{{- dict "enabled" $envAll.Values.manifests.certificates "name" $envAll.Values.endpoints.oslo_db.auth.admin.secret.tls.internal "path" "/etc/mysql/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
-{{- dict "enabled" (or .Values.manifests.certificates .Values.tls.identity) "name" .Values.secrets.tls.placement.api.internal "path" "/etc/placement/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
+{{- dict "enabled" $envAll.Values.tls.oslo_db "name" "client-certs" "path" "/etc/mysql/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
+{{- dict "enabled" (not (empty .Values.secrets.tls.ca)) "name" .Values.secrets.tls.ca | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
 {{ if $mounts_placement.volumeMounts }}{{ toYaml $mounts_placement.volumeMounts | indent 12 }}{{ end }}
+{{- range $extraContainer := $envAll.Values.pod.extraContainers.placement_api }}
+        - {{ $extraContainer | toYaml | indent 10 | trim }}
+{{- end }}
       volumes:
         - name: pod-tmp
           emptyDir: {}
-        - name: wsgi-placement
+        - name: oslo-lock-path
           emptyDir: {}
         - name: placement-bin
           configMap:
@@ -166,13 +165,24 @@ spec:
           secret:
             secretName: placement-etc
             defaultMode: 0444
+        - name: placement-etc-snippets
+{{- if $etcSources }}
+          projected:
+            sources:
+{{ toYaml $etcSources | indent 14 }}
+{{- else }}
+          emptyDir: {}
+{{ end }}
         {{- if .Values.conf.placement.DEFAULT.log_dir }}
         - name: log
           hostPath:
             path: {{ .Values.conf.placement.DEFAULT.log_dir }}
             type: DirectoryOrCreate
         {{- end }}
-{{- dict "enabled" $envAll.Values.manifests.certificates "name" $envAll.Values.endpoints.oslo_db.auth.admin.secret.tls.internal | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
-{{- dict "enabled" (or .Values.manifests.certificates .Values.tls.identity) "name" .Values.secrets.tls.placement.api.internal | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
+{{- dict "enabled" (or $envAll.Values.tls.oslo_db $envAll.Values.tls.oslo_messaging) "name" "client-certs" "secretName" $envAll.Values.secrets.tls.client.placement | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
+{{- dict "enabled" (not (empty .Values.secrets.tls.ca)) "name" .Values.secrets.tls.ca | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
 {{ if $mounts_placement.volumes }}{{ toYaml $mounts_placement.volumes | indent 8 }}{{ end }}
+{{- range $extraVolume := $envAll.Values.pod.extraVolumes.placement_api }}
+        - {{ $extraVolume | toYaml | indent 10 | trim }}
+{{- end }}
 {{- end }}

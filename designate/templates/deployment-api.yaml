@@ -14,6 +14,7 @@
 {{- $envAll := . }}
 {{- $mounts_designate_api := .Values.pod.mounts.designate_api.designate_api }}
 {{- $mounts_designate_api_init := .Values.pod.mounts.designate_api.init_container }}
+{{- $etcSources := .Values.pod.etcSources.designate_api }}
 
 {{- $serviceAccountName := "designate-api" }}
 {{ tuple $envAll "api" $serviceAccountName | include "helm-toolkit.snippets.kubernetes_pod_rbac_serviceaccount" }}
@@ -71,10 +72,12 @@ spec:
               containerPort: {{ tuple "dns" "internal" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
           readinessProbe:
             httpGet:
-              scheme: {{ tuple "dns" "internal" "api" . | include "helm-toolkit.endpoints.keystone_endpoint_scheme_lookup" | upper }}
+              scheme: {{ tuple "dns" "service" "api" . | include "helm-toolkit.endpoints.keystone_endpoint_scheme_lookup" | upper }}
               path: /
-              port: {{ tuple "dns" "internal" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
+              port: {{ tuple "dns" "service" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
           volumeMounts:
+            - name: oslo-lock-path
+              mountPath: {{ .Values.conf.designate.oslo_concurrency.lock_path }}
             - name: designate-bin
               mountPath: /tmp/designate-api.sh
               subPath: designate-api.sh
@@ -86,6 +89,9 @@ spec:
             - name: designate-etc
               mountPath: /etc/designate/designate.conf
               subPath: designate.conf
+              readOnly: true
+            - name: designate-etc-snippets
+              mountPath: /etc/designate/designate.conf.d/
               readOnly: true
             - name: designate-etc
               mountPath: /etc/designate/api-paste.ini
@@ -107,6 +113,8 @@ spec:
             {{- end }}
 {{ if $mounts_designate_api.volumeMounts }}{{ toYaml $mounts_designate_api.volumeMounts | indent 12 }}{{ end }}
       volumes:
+        - name: oslo-lock-path
+          emptyDir: {}
         - name: pod-etc-designate
           emptyDir: {}
         - name: pod-var-cache-designate
@@ -119,5 +127,13 @@ spec:
           secret:
             secretName: designate-etc
             defaultMode: 0444
+        - name: designate-etc-snippets
+{{- if $etcSources }}
+          projected:
+            sources:
+{{ toYaml $etcSources | indent 14 }}
+{{- else }}
+          emptyDir: {}
+{{ end }}
 {{ if $mounts_designate_api.volumes }}{{ toYaml $mounts_designate_api.volumes | indent 8 }}{{ end }}
 {{- end }}

@@ -20,6 +20,8 @@ limitations under the License.
 
 {{- $serviceAccountName := "ceilometer-compute" }}
 {{ tuple $envAll "compute" $serviceAccountName | include "helm-toolkit.snippets.kubernetes_pod_rbac_serviceaccount" }}
+
+{{- $etcSources := .Values.pod.etcSources.ceilometer_compute }}
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -62,15 +64,26 @@ spec:
 {{ tuple $envAll "ceilometer_compute" | include "helm-toolkit.snippets.image" | indent 10 }}
 {{ tuple $envAll $envAll.Values.pod.resources.compute | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
           command:
-            - /tmp/ceilometer-compute.sh
+            - ceilometer-polling
+            - --polling-namespaces
+            - compute
+            - --config-file
+            - /etc/ceilometer/ceilometer.conf
+            - --config-dir
+            - /etc/ceilometer/ceilometer.conf.d
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: {{ .Values.conf.ceilometer.oslo_concurrency.lock_path }}
             - name: pod-etc-ceilometer
               mountPath: /etc/ceilometer
             - name: ceilometer-etc
               mountPath: /etc/ceilometer/ceilometer.conf
               subPath: ceilometer.conf
+              readOnly: true
+            - name: ceilometer-etc-snippets
+              mountPath: /etc/ceilometer/ceilometer.conf.d/
               readOnly: true
             - name: ceilometer-etc
               mountPath: /etc/ceilometer/api_paste.ini
@@ -100,10 +113,6 @@ spec:
               mountPath: /etc/ceilometer/polling.yaml
               subPath: polling.yaml
               readOnly: true
-            - name: ceilometer-bin
-              mountPath: /tmp/ceilometer-compute.sh
-              subPath: ceilometer-compute.sh
-              readOnly: true
             - name: varlibnova
               mountPath: /var/lib/nova
             - name: varliblibvirt
@@ -119,12 +128,22 @@ spec:
       volumes:
         - name: pod-tmp
           emptyDir: {}
+        - name: oslo-lock-path
+          emptyDir: {}
         - name: pod-etc-ceilometer
           emptyDir: {}
         - name: ceilometer-etc
           secret:
             secretName: ceilometer-etc
             defaultMode: 0444
+        - name: ceilometer-etc-snippets
+{{- if $etcSources }}
+          projected:
+            sources:
+{{ toYaml $etcSources | indent 14 }}
+{{- else }}
+          emptyDir: {}
+{{ end }}
         - name: ceilometer-bin
           configMap:
             name: ceilometer-bin

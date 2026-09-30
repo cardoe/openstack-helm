@@ -17,10 +17,10 @@
 ---
 images:
   tags:
-    prometheus_openstack_exporter: quay.io/airshipit/prometheus-openstack-exporter:latest-ubuntu_jammy
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
+    prometheus_openstack_exporter: ghcr.io/openstack-exporter/openstack-exporter:1.7.0
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_noble
     image_repo_sync: quay.io/airshipit/docker:27.5.0
-    ks_user: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
+    ks_user: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
   pull_policy: IfNotPresent
   local_registry:
     active: false
@@ -52,6 +52,11 @@ pod:
         prometheus_openstack_exporter_ks_user:
           readOnlyRootFilesystem: true
           allowPrivilegeEscalation: false
+    clouds_yaml_gen:
+      container:
+        prometheus_openstack_exporter_ks_user:
+          readOnlyRootFilesystem: true
+          allowPrivilegeEscalation: false
   affinity:
     anti:
       type:
@@ -78,6 +83,13 @@ pod:
   resources:
     enabled: false
     prometheus_openstack_exporter:
+      requests:
+        memory: "128Mi"
+        cpu: "100m"
+      limits:
+        memory: "1024Mi"
+        cpu: "2000m"
+    clouds_yaml_gen:
       requests:
         memory: "128Mi"
         cpu: "100m"
@@ -145,6 +157,11 @@ secrets:
         internal: keystone-tls-api
 
 
+identity:
+  openrc:
+    exclude_vars: []
+    extra_vars: []
+
 endpoints:
   cluster_domain_suffix: cluster.local
   local_image_registry:
@@ -186,7 +203,7 @@ endpoints:
       default: 'http'
     port:
       exporter:
-        default: 9103
+        default: 9180
   identity:
     name: keystone
     auth:
@@ -227,7 +244,7 @@ monitoring:
 
 network:
   openstack_metrics_exporter:
-    port: 9103
+    port: 9180
 
 network_policy:
   prometheus-openstack-exporter:
@@ -246,4 +263,38 @@ manifests:
   secret_keystone: true
   secret_registry: true
   service: true
+
+# -- Extra K8s manifests to deploy. Either a list or a map of manifests.
+## Note: Supports use of custom Helm templates
+## Note: Helm replaces (instead of merging) list values when several values
+## files are combined, so if you need to define extraObjects in more than one
+## overrides file, use the map form and make sure the keys are unique across
+## those files. With the list form only the last file takes effect.
+extraObjects: {}
+  # osh_secrets_store:
+  #   apiVersion: secrets-store.csi.x-k8s.io/v1
+  #   kind: SecretProviderClass
+  #   metadata:
+  #     name: osh-secrets-store
+  #   spec:
+  #     provider: aws
+  #     parameters:
+  #       objects: |
+  #         - objectName: "osh"
+  #           objectType: "secretsmanager"
+  #           jmesPath:
+  #               - path: "client_id"
+  #                 objectAlias: "client_id"
+  #               - path: "client_secret"
+  #                 objectAlias: "client_secret"
+  #     secretObjects:
+  #     - data:
+  #       - key: client_id
+  #         objectName: client_id
+  #       - key: client_secret
+  #         objectName: client_secret
+  #       secretName: osh-secrets-store
+  #       type: Opaque
+  #       labels:
+  #         app.kubernetes.io/part-of: osh
 ...

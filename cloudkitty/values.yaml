@@ -13,18 +13,18 @@
 ---
 images:
   tags:
-    bootstrap: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    cloudkitty_api: quay.io/airshipit/cloudkitty:2025.1-ubuntu_noble
-    cloudkitty_db_sync: quay.io/airshipit/cloudkitty:2025.1-ubuntu_noble
-    cloudkitty_processor: quay.io/airshipit/cloudkitty:2025.1-ubuntu_noble
-    cloudkitty_storage_init: quay.io/airshipit/cloudkitty:2025.1-ubuntu_noble
-    db_init: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    db_drop: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
-    ks_endpoints: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_service: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_user: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    rabbit_init: docker.io/rabbitmq:3.13-management
+    bootstrap: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    cloudkitty_api: quay.io/airshipit/cloudkitty:2026.1-ubuntu_noble
+    cloudkitty_db_sync: quay.io/airshipit/cloudkitty:2026.1-ubuntu_noble
+    cloudkitty_processor: quay.io/airshipit/cloudkitty:2026.1-ubuntu_noble
+    cloudkitty_storage_init: quay.io/airshipit/cloudkitty:2026.1-ubuntu_noble
+    db_init: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    db_drop: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_noble
+    ks_endpoints: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_service: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_user: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    rabbit_init: docker.io/rabbitmq:4.3.5-management
     image_repo_sync: docker.io/docker:17.07.0
   pull_policy: "IfNotPresent"
   local_registry:
@@ -46,6 +46,11 @@ labels:
   test:
     node_selector_key: openstack-control-plane
     node_selector_value: enabled
+
+identity:
+  openrc:
+    exclude_vars: []
+    extra_vars: []
 
 endpoints:
   cluster_domain_suffix: cluster.local
@@ -96,9 +101,6 @@ endpoints:
       admin:
         username: root
         password: password
-        secret:
-          tls:
-            internal: mariadb-tls-direct
       cloudkitty:
         username: cloudkitty
         password: password
@@ -155,9 +157,6 @@ endpoints:
       admin:
         username: rabbitmq
         password: password
-        secret:
-          tls:
-            internal: rabbitmq-tls-direct
       cloudkitty:
         username: cloudkitty
         password: password
@@ -221,14 +220,6 @@ endpoints:
       dns:
         default: 53
         protocol: UDP
-  ingress:
-    namespace: null
-    name: ingress
-    hosts:
-      default: ingress
-    port:
-      ingress:
-        default: 80
 
 secrets:
   identity:
@@ -243,6 +234,9 @@ secrets:
     cloudkitty: cloudkitty-rabbitmq-user
   oci_image_registry:
     cloudkitty: cloudkitty-oci-image-registry
+  tls:
+    client:
+      cloudkitty: cloudkitty-client
 
 bootstrap:
   enabled: false
@@ -350,6 +344,9 @@ pod:
       default:
         liveness:
           enabled: true
+          # uwsgi stats socket (conf.cloudkitty_api_uwsgi.uwsgi.stats); served
+          # by the master, so it answers even when every worker is busy.
+          port: 1717
           params: {}
         readiness:
           enabled: true
@@ -428,6 +425,13 @@ pod:
       cloudkitty_db_sync:
         volumeMounts:
         volumes:
+  # -- This allows users to add Kubernetes Projected Volumes to be mounted at /etc/cloudkitty/cloudkitty.conf.d/
+  ## This is a list of projected volume source objects for each deployment/statefulset/daemonset/cronjob
+  ## https://kubernetes.io/docs/concepts/storage/projected-volumes/
+  etcSources:
+    cloudkitty_api: []
+    cloudkitty_processor: []
+    cloudkitty_db_sync: []
   resources:
     enabled: false
     cloudkitty_api:
@@ -517,22 +521,30 @@ pod:
           cpu: "2000m"
 conf:
   paste:
-    pipeline:cloudkitty+noauth:
-      pipeline: cors healthcheck http_proxy_to_wsgi request_id ck_api
-    pipeline:cloudkitty+keystone:
-      pipeline: cors healthcheck http_proxy_to_wsgi request_id authtoken ck_api
+    composite:cloudkitty+noauth:
+      use: "egg:Paste#urlmap"
+      /: api+noauth
+      /healthcheck: healthcheck
+    composite:cloudkitty+keystone:
+      use: "egg:Paste#urlmap"
+      /: api+keystone
+      /healthcheck: healthcheck
+    pipeline:api+noauth:
+      pipeline: cors http_proxy_to_wsgi request_id ck_api
+    pipeline:api+keystone:
+      pipeline: cors http_proxy_to_wsgi request_id authtoken ck_api
     app:ck_api:
       paste.app_factory: cloudkitty.api.app:app_factory
     filter:authtoken:
-      acl_public_routes: /, /v1, /v2, /healthcheck
+      acl_public_routes: /, /v1, /v2
       paste.filter_factory: cloudkitty.api.middleware:AuthTokenMiddleware.factory
     filter:request_id:
       paste.filter_factory: oslo_middleware:RequestId.factory
     filter:cors:
       paste.filter_factory: oslo_middleware.cors:filter_factory
       oslo_config_project: cloudkitty
-    filter:healthcheck:
-      paste.filter_factory: oslo_middleware:Healthcheck.factory
+    app:healthcheck:
+      paste.app_factory: oslo_middleware:Healthcheck.app_factory
       backends: disable_by_file
       disable_by_file_path: /etc/cloudkitty/healthcheck_disable
     filter:http_proxy_to_wsgi:
@@ -549,11 +561,12 @@ conf:
       lazy-apps: true
       log-x-forwarded-for: true
       master: true
+      need-app: true
       procname-prefix-spaced: "cloudkitty-api:"
       route-user-agent: '^kube-probe.* donotlog:'
       thunder-lock: true
       worker-reload-mercy: 80
-      wsgi-file: /var/lib/openstack/bin/cloudkitty-api
+      module: cloudkitty.wsgi.api:application
       processes: 1
       stats: 0.0.0.0:1717
       stats-http: true
@@ -563,6 +576,14 @@ conf:
       api_paste_config: /etc/cloudkitty/api-paste.ini
       auth_strategy: keystone
       debug: false
+    oslo_messaging_rabbit:
+      # -- Durable and quorum queues, which RabbitMQ 4.x requires: it denies
+      ## transient non-exclusive queues, and oslo.messaging declares its RPC,
+      ## notification, reply and fanout queues that way otherwise. Valid on 3.x.
+      amqp_durable_queues: true
+      rabbit_quorum_queue: true
+      rabbit_transient_quorum_queue: true
+      use_queue_manager: true
     keystone_authtoken:
       auth_type: password
       username: cloudkitty
@@ -571,6 +592,13 @@ conf:
       service_type: rating
     database:
       max_retries: -1
+      # -- Database connection URI. When empty the URI is auto-generated
+      ## from endpoints.oslo_db. Set to null to disable auto-generation,
+      ## e.g. when using an operator such as mariadb-operator that supplies
+      ## the connection string via a mounted configuration snippet.
+      connection: ""
+    oslo_concurrency:
+      lock_path: /var/lock
     collect:
       collector: gnocchi
     collector_gnocchi:
@@ -738,20 +766,8 @@ conf:
           - volume_type
         unit: GiB
 
-# Note(xuxant): Hooks will break the upgrade for helm2
-# Set to false if using helm2.
-helm3_hook: true
-
 network:
   api:
-    ingress:
-      public: true
-      classes:
-        namespace: "ingress-openstack"
-        cluster: "ingress-cluster"
-      annotations:
-        nginx.ingress.kubernetes.io/rewrite-target: /
-        haproxy.org/path-rewrite: /
     node_port:
       enabled: false
       port: 33053
@@ -778,12 +794,14 @@ network_policy:
         - protocol: TCP
           port: 8089
 
+tls:
+  oslo_db: false
+
 manifests:
   configmap_bin: true
   configmap_etc: true
   deployment_api: true
   deployment_processor: true
-  ingress_api: true
   job_bootstrap: true
   job_ks_user: true
   job_db_sync: true
@@ -801,4 +819,37 @@ manifests:
   secret_registry: true
   service_api: true
   secret_ks_etc: true
+# -- Extra K8s manifests to deploy. Either a list or a map of manifests.
+## Note: Supports use of custom Helm templates
+## Note: Helm replaces (instead of merging) list values when several values
+## files are combined, so if you need to define extraObjects in more than one
+## overrides file, use the map form and make sure the keys are unique across
+## those files. With the list form only the last file takes effect.
+extraObjects: {}
+  # osh_secrets_store:
+  #   apiVersion: secrets-store.csi.x-k8s.io/v1
+  #   kind: SecretProviderClass
+  #   metadata:
+  #     name: osh-secrets-store
+  #   spec:
+  #     provider: aws
+  #     parameters:
+  #       objects: |
+  #         - objectName: "osh"
+  #           objectType: "secretsmanager"
+  #           jmesPath:
+  #               - path: "client_id"
+  #                 objectAlias: "client_id"
+  #               - path: "client_secret"
+  #                 objectAlias: "client_secret"
+  #     secretObjects:
+  #     - data:
+  #       - key: client_id
+  #         objectName: client_id
+  #       - key: client_secret
+  #         objectName: client_secret
+  #       secretName: osh-secrets-store
+  #       type: Opaque
+  #       labels:
+  #         app.kubernetes.io/part-of: osh
 ...

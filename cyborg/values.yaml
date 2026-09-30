@@ -13,17 +13,17 @@
 ---
 images:
   tags:
-    db_init: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    cyborg_db_sync: quay.io/airshipit/cyborg:2025.1-ubuntu_noble
-    db_drop: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_endpoints: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_service: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_user: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    cyborg_api: quay.io/airshipit/cyborg:2025.1-ubuntu_noble
-    cyborg_conductor: quay.io/airshipit/cyborg:2025.1-ubuntu_noble
-    cyborg_agent: quay.io/airshipit/cyborg:2025.1-ubuntu_noble
-    rabbit_init: docker.io/rabbitmq:3.13-management
-    dep_check: 'quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy'
+    db_init: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    cyborg_db_sync: quay.io/airshipit/cyborg:2026.1-ubuntu_noble
+    db_drop: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_endpoints: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_service: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_user: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    cyborg_api: quay.io/airshipit/cyborg:2026.1-ubuntu_noble
+    cyborg_conductor: quay.io/airshipit/cyborg:2026.1-ubuntu_noble
+    cyborg_agent: quay.io/airshipit/cyborg:2026.1-ubuntu_noble
+    rabbit_init: docker.io/rabbitmq:4.3.5-management
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_noble
   pull_policy: "IfNotPresent"
   local_registry:
     active: false
@@ -47,6 +47,11 @@ labels:
   test:
     node_selector_key: openstack-control-plane
     node_selector_value: enabled
+
+identity:
+  openrc:
+    exclude_vars: []
+    extra_vars: []
 
 endpoints:
   cluster_domain_suffix: cluster.local
@@ -99,9 +104,6 @@ endpoints:
       admin:
         username: root
         password: password
-        secret:
-          tls:
-            internal: mariadb-tls-direct
       cyborg:
         username: cyborg
         password: password
@@ -174,9 +176,6 @@ endpoints:
       admin:
         username: rabbitmq
         password: password
-        secret:
-          tls:
-            internal: rabbitmq-tls-direct
       cyborg:
         username: cyborg
         password: password
@@ -240,14 +239,6 @@ endpoints:
       dns:
         default: 53
         protocol: UDP
-  ingress:
-    namespace: null
-    name: ingress
-    hosts:
-      default: ingress
-    port:
-      ingress:
-        default: 80
 
 secrets:
   identity:
@@ -256,7 +247,6 @@ secrets:
     test: cyborg-keystone-test
   oslo_db:
     admin: cyborg-db-admin
-    cyborg: cyborg-db-user
   oslo_messaging:
     admin: cyborg-rabbitmq-admin
     cyborg: cyborg-rabbitmq-user
@@ -497,12 +487,25 @@ conf:
       host_ip: 0.0.0.0
       api_workers: 3
     database:
-      connection: null
+      # -- Database connection URI. When empty the URI is auto-generated
+      ## from endpoints.oslo_db. Set to null to disable auto-generation,
+      ## e.g. when using an operator such as mariadb-operator that supplies
+      ## the connection string via a mounted configuration snippet.
+      connection: ""
     service_catalog:
       auth_type: password
     oslo_messaging_rabbit:
-      rabbit_ha_queues: true
+      rabbit_ha_queues: false
       amqp_durable_queues: true
+      # -- Quorum queues, which RabbitMQ 4.x requires: it denies transient
+      ## non-exclusive queues, and oslo.messaging declares its reply and fanout
+      ## queues that way unless the transient ones are quorum too.
+      ## amqp_durable_queues alone only covers the RPC and notification queues.
+      rabbit_quorum_queue: true
+      rabbit_transient_quorum_queue: true
+      use_queue_manager: true
+    oslo_concurrency:
+      lock_path: /var/lock
     placement:
       auth_type: password
     nova:
@@ -524,8 +527,6 @@ conf:
       - vhost: "cyborg"
         name: "ha_ttl_cyborg"
         definition:
-          ha-mode: "all"
-          ha-sync-mode: "automatic"
           message-ttl: 70000
         priority: 0
         apply-to: all
@@ -536,14 +537,6 @@ network:
     port: 6666
     istio:
       public: true
-    ingress:
-      public: false
-      classes:
-        namespace: "ingress-openstack"
-        cluster: "ingress-cluster"
-      annotations:
-        nginx.ingress.kubernetes.io/rewrite-target: /
-        haproxy.org/path-rewrite: /
     node_port:
       enabled: false
       port: 30666
@@ -555,7 +548,6 @@ manifests:
   daemonset_agent: true
   deployment_api: true
   deployment_conductor: true
-  ingress_api: true
   job_db_drop: false
   job_db_init: true
   job_db_sync: true
@@ -570,6 +562,39 @@ manifests:
   secret_keystone: true
   secret_rabbitmq: true
   secret_registry: true
-  service_ingress_api: false
   service_api: true
+
+# -- Extra K8s manifests to deploy. Either a list or a map of manifests.
+## Note: Supports use of custom Helm templates
+## Note: Helm replaces (instead of merging) list values when several values
+## files are combined, so if you need to define extraObjects in more than one
+## overrides file, use the map form and make sure the keys are unique across
+## those files. With the list form only the last file takes effect.
+extraObjects: {}
+  # osh_secrets_store:
+  #   apiVersion: secrets-store.csi.x-k8s.io/v1
+  #   kind: SecretProviderClass
+  #   metadata:
+  #     name: osh-secrets-store
+  #   spec:
+  #     provider: aws
+  #     parameters:
+  #       objects: |
+  #         - objectName: "osh"
+  #           objectType: "secretsmanager"
+  #           jmesPath:
+  #               - path: "client_id"
+  #                 objectAlias: "client_id"
+  #               - path: "client_secret"
+  #                 objectAlias: "client_secret"
+  #     secretObjects:
+  #     - data:
+  #       - key: client_id
+  #         objectName: client_id
+  #       - key: client_secret
+  #         objectName: client_secret
+  #       secretName: osh-secrets-store
+  #       type: Opaque
+  #       labels:
+  #         app.kubernetes.io/part-of: osh
 ...

@@ -66,14 +66,18 @@ spec:
 {{ tuple $envAll "nova_compute_ironic" | include "helm-toolkit.snippets.image" | indent 10 }}
 {{ tuple $envAll $envAll.Values.pod.resources.compute_ironic | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
           command:
-            - /tmp/nova-compute-ironic.sh
+            - nova-compute
+            - --config-file
+            - /etc/nova/nova-compute.conf
+            - --config-file
+            - /etc/nova/nova-ironic.conf
+            - --config-dir
+            - /etc/nova/nova.conf.d
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
-            - name: nova-bin
-              mountPath: /tmp/nova-compute-ironic.sh
-              subPath: nova-compute-ironic.sh
-              readOnly: true
+            - name: oslo-lock-path
+              mountPath: {{ .Values.conf.nova.oslo_concurrency.lock_path }}
             - name: nova-etc
               mountPath: /etc/nova/nova-compute.conf
               subPath: nova-compute.conf
@@ -105,6 +109,8 @@ spec:
       volumes:
         - name: pod-tmp
           emptyDir: {}
+        - name: oslo-lock-path
+          emptyDir: {}
         - name: nova-bin
           configMap:
             name: nova-bin
@@ -113,11 +119,13 @@ spec:
           secret:
             secretName: nova-etc
             defaultMode: 0444
-{{- if $etcSources }}
         - name: nova-etc-snippets
+{{- if $etcSources }}
           projected:
             sources:
 {{ toYaml $etcSources | indent 14 }}
+{{- else }}
+          emptyDir: {}
 {{ end }}
         - name: varlibironic
           hostPath:

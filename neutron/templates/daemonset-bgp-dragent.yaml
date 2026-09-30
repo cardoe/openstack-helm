@@ -58,6 +58,7 @@ spec:
         configmap-bin-hash: {{ tuple "configmap-bin.yaml" . | include "helm-toolkit.utils.hash" }}
         configmap-etc-hash: {{ tuple "configmap-etc.yaml" . | include "helm-toolkit.utils.hash" }}
 {{ tuple "neutron_bgp_dragent" . | include "helm-toolkit.snippets.custom_pod_annotations" | indent 8 }}
+{{ dict "envAll" $envAll "podName" "neutron-bgp-dragent-default" "containerNames" (list "neutron-bgp-dragent" "init") | include "helm-toolkit.snippets.kubernetes_mandatory_access_control_annotation" | indent 8 }}
     spec:
 {{ dict "envAll" $envAll "application" "neutron_bgp_dragent" | include "helm-toolkit.snippets.kubernetes_pod_security_context" | indent 6 }}
 {{ tuple "bgp_dragent" . | include "helm-toolkit.snippets.kubernetes_pod_priority_class" | indent 6 }}
@@ -70,11 +71,7 @@ spec:
         {{ .Values.labels.bgp_dragent.node_selector_key }}: {{ .Values.labels.bgp_dragent.node_selector_value }}
       dnsPolicy: ClusterFirstWithHostNet
       hostNetwork: true
-      {{- if or ( gt .Capabilities.KubeVersion.Major "1" ) ( ge .Capabilities.KubeVersion.Minor "10" ) }}
       shareProcessNamespace: true
-      {{- else }}
-      hostPID: true
-      {{- end }}
       containers:
         - name: neutron-bgp-dragent
 {{ tuple $envAll "neutron_bgp_dragent" | include "helm-toolkit.snippets.image" | indent 10 }}
@@ -82,16 +79,21 @@ spec:
 {{ dict "envAll" $envAll "application" "neutron_bgp_dragent" "container" "neutron_bgp_dragent" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
 {{ dict "envAll" $envAll "component" "bgp_dragent" "container" "bgp_dragent" "type" "liveness" "probeTemplate" (include "bgp_dragentLivenessProbeTemplate" $envAll | fromYaml) | include "helm-toolkit.snippets.kubernetes_probe" | indent 10 }}
           command:
-            - /tmp/neutron-bgp-dragent.sh
+            - neutron-bgp-dragent
+            - --config-file
+            - /etc/neutron/neutron.conf
+            - --config-file
+            - /etc/neutron/bgp_dragent.ini
+            - --config-dir
+            - /etc/neutron/neutron.conf.d
+            - --debug
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: {{ .Values.conf.neutron.oslo_concurrency.lock_path }}
             - name: pod-var-neutron
               mountPath: {{ .Values.conf.neutron.DEFAULT.state_path }}
-            - name: neutron-bin
-              mountPath: /tmp/neutron-bgp-dragent.sh
-              subPath: neutron-bgp-dragent.sh
-              readOnly: true
             - name: neutron-bin
               mountPath: /tmp/health-probe.py
               subPath: health-probe.py
@@ -143,6 +145,8 @@ spec:
       volumes:
         - name: pod-tmp
           emptyDir: {}
+        - name: oslo-lock-path
+          emptyDir: {}
         - name: pod-var-neutron
           emptyDir: {}
         - name: neutron-bin
@@ -153,11 +157,13 @@ spec:
           secret:
             secretName: {{ $configMapName }}
             defaultMode: 0444
-{{- if $etcSources }}
         - name: neutron-etc-snippets
+{{- if $etcSources }}
           projected:
             sources:
 {{ toYaml $etcSources | indent 14 }}
+{{- else }}
+          emptyDir: {}
 {{ end }}
         - name: libmodules
           hostPath:

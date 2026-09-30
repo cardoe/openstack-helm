@@ -65,9 +65,9 @@ pod:
 
 images:
   tags:
-    bootstrap: "docker.io/osixia/openldap:1.2.0"
-    ldap: "docker.io/osixia/openldap:1.2.0"
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
+    bootstrap: "symas/openldap:2.6.8-debian-12"
+    ldap: "symas/openldap:2.6.8-debian-12"
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_noble
     image_repo_sync: quay.io/airshipit/docker:27.5.0
   pull_policy: IfNotPresent
   local_registry:
@@ -123,6 +123,11 @@ labels:
 bootstrap:
   enabled: false
 
+identity:
+  openrc:
+    exclude_vars: []
+    extra_vars: []
+
 endpoints:
   cluster_domain_suffix: cluster.local
   local_image_registry:
@@ -161,7 +166,7 @@ endpoints:
     scheme: 'ldap'
     port:
       ldap:
-        default: 389
+        default: 1389
 
 network_policy:
   ldap:
@@ -172,6 +177,13 @@ network_policy:
 
 data:
   sample: |
+    dn: dc=cluster,dc=local
+    objectClass: top
+    objectClass: dcObject
+    objectClass: organization
+    dc: cluster
+    o: cluster
+
     dn: ou=People,dc=cluster,dc=local
     objectclass: organizationalunit
     ou: People
@@ -261,4 +273,38 @@ manifests:
   secret_registry: true
   statefulset: true
   service: true
+
+# -- Extra K8s manifests to deploy. Either a list or a map of manifests.
+## Note: Supports use of custom Helm templates
+## Note: Helm replaces (instead of merging) list values when several values
+## files are combined, so if you need to define extraObjects in more than one
+## overrides file, use the map form and make sure the keys are unique across
+## those files. With the list form only the last file takes effect.
+extraObjects: {}
+  # osh_secrets_store:
+  #   apiVersion: secrets-store.csi.x-k8s.io/v1
+  #   kind: SecretProviderClass
+  #   metadata:
+  #     name: osh-secrets-store
+  #   spec:
+  #     provider: aws
+  #     parameters:
+  #       objects: |
+  #         - objectName: "osh"
+  #           objectType: "secretsmanager"
+  #           jmesPath:
+  #               - path: "client_id"
+  #                 objectAlias: "client_id"
+  #               - path: "client_secret"
+  #                 objectAlias: "client_secret"
+  #     secretObjects:
+  #     - data:
+  #       - key: client_id
+  #         objectName: client_id
+  #       - key: client_secret
+  #         objectName: client_secret
+  #       secretName: osh-secrets-store
+  #       type: Opaque
+  #       labels:
+  #         app.kubernetes.io/part-of: osh
 ...

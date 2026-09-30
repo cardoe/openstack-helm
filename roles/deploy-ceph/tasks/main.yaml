@@ -1,0 +1,365 @@
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Deploys Ceph via Rook operator.
+#
+# It installs the Rook operator, deploys a CephCluster, and waits for
+# the cluster to become healthy.
+---
+- name: Render Rook operator values
+  template:
+    src: rook-operator-values.yaml.j2
+    dest: /tmp/rook-operator-values.yaml
+    mode: "0644"
+
+- name: Render Rook cluster values
+  template:
+    src: rook-cluster-values.yaml.j2
+    dest: /tmp/rook-cluster-values.yaml
+    mode: "0644"
+
+- name: Add Rook Helm repo
+  command: helm repo add rook-release https://charts.rook.io/release
+  changed_when: true
+
+- name: Deploy Rook operator
+  shell: |
+    set -x
+    cat /tmp/rook-operator-values.yaml
+    helm upgrade --install --create-namespace --namespace {{ ceph_rook_namespace }} \
+      rook-ceph rook-release/rook-ceph \
+      --version {{ ceph_rook_release }} \
+      -f /tmp/rook-operator-values.yaml
+  args:
+    executable: /bin/bash
+  changed_when: true
+
+- name: Wait for Rook operator to be ready
+  command: >
+    kubectl wait deployment rook-ceph-operator
+    --namespace={{ ceph_rook_namespace }}
+    --for=condition=Available
+    --timeout={{ ceph_wait_timeout }}s
+  changed_when: false
+  retries: 5
+  delay: 30
+
+# Rook 1.20 delegates CSI entirely to the ceph-csi-operator subchart and no
+# longer creates the Driver custom resource itself: pkg/operator/ceph/csi lost
+# operator_driver.go and operator_config.go, and templates/configmap.yaml no
+# longer renders any CSI_* setting into rook-ceph-operator-config. Rook still
+# maintains CephConnection, ClientProfile and the CSI secrets, but without a
+# Driver resource the csi operator deploys no plugin at all, so every PVC on the
+# storage class below waits forever for a provisioner that does not exist.
+#
+# The Driver alone is not enough: the operator defaults the plugin pods to
+# service accounts named after the driver, which nothing else creates. The
+# ceph-csi-drivers chart, published alongside the operator, renders the Driver
+# together with those accounts and their RBAC, so use it rather than applying a
+# bare custom resource. It installs into the operator namespace, which is the
+# only one the csi operator watches (it logs "WATCH_NAMESPACE must be set" and
+# falls back to its own).
+- name: Render ceph-csi-drivers values
+  template:
+    src: ceph-csi-drivers-values.yaml.j2
+    dest: /tmp/ceph-csi-drivers-values.yaml
+    mode: "0644"
+
+- name: Add ceph-csi-operator Helm repo
+  command: helm repo add ceph-csi https://ceph.github.io/ceph-csi-operator
+  changed_when: true
+
+- name: Deploy the ceph-csi RBD driver
+  shell: |
+    set -x
+    cat /tmp/ceph-csi-drivers-values.yaml
+    helm upgrade --install --create-namespace --namespace {{ ceph_rook_namespace }} \
+      ceph-csi-drivers ceph-csi/ceph-csi-drivers \
+      --version {{ ceph_csi_drivers_release }} \
+      -f /tmp/ceph-csi-drivers-values.yaml
+  args:
+    executable: /bin/bash
+  changed_when: true
+
+- name: Deploy Rook Ceph cluster
+  shell: |
+    set -x
+    cat /tmp/rook-cluster-values.yaml
+    helm upgrade --install --create-namespace --namespace {{ ceph_cluster_namespace }} \
+      rook-ceph-cluster \
+      rook-release/rook-ceph-cluster \
+      --set operatorNamespace={{ ceph_rook_namespace }} \
+      --version {{ ceph_rook_release }} \
+      --force-conflicts \
+      -f /tmp/rook-cluster-values.yaml
+  args:
+    executable: /bin/bash
+  changed_when: true
+
+
+- name: Wait for CephCluster to reach Ready phase
+  command: >
+    kubectl wait cephcluster/{{ ceph_cluster_name }}
+    --namespace={{ ceph_cluster_namespace }}
+    --for=jsonpath={.status.phase}=Ready
+    --timeout={{ ceph_wait_timeout }}s
+  changed_when: false
+
+# Only now can the plugins settle: the csi operator builds its ceph-csi-config
+# from the ClientProfile that Rook writes once the mons are up. A green
+# CephCluster says nothing about CSI, which is how a deployment with no
+# provisioner at all reached CI unnoticed, so assert both plugins here. The
+# operator names their workloads after the Driver rather than using Rook's old
+# csi-rbdplugin naming.
+# Short per-attempt timeout with retries rather than one long wait: until the
+# operator has created the workload, rollout status fails immediately with
+# NotFound, and retrying is what covers that window.
+- name: Wait for the ceph-csi RBD plugins to be running
+  command: >
+    kubectl rollout status {{ item }}
+    --namespace={{ ceph_rook_namespace }}
+    --timeout=120s
+  register: _csi_rbd_rollout
+  until: _csi_rbd_rollout.rc == 0
+  retries: 10
+  delay: 15
+  changed_when: false
+  loop:
+    - daemonset/{{ ceph_rook_namespace }}.rbd.csi.ceph.com-nodeplugin
+    - deployment/{{ ceph_rook_namespace }}.rbd.csi.ceph.com-ctrlplugin
+
+- name: Wait for CephObjectStore to reach Ready phase
+  command: >
+    kubectl wait cephobjectstore/default
+    --namespace={{ ceph_cluster_namespace }}
+    --for=jsonpath={.status.phase}=Ready
+    --timeout={{ ceph_wait_timeout }}s
+  changed_when: false
+
+# The toolbox pod is often scheduled before rook-ceph-mon-endpoints is
+# populated, so its mounted ceph.conf falls back to DNS SRV discovery
+# (_ceph-mon._tcp), which fails. Restarting after the cluster is Ready
+# forces the new pod to read the correct mon list.
+- name: Restart rook-ceph-tools to refresh mon endpoints
+  command: >
+    kubectl rollout restart deployment/rook-ceph-tools
+    --namespace={{ ceph_cluster_namespace }}
+  changed_when: true
+
+- name: Wait for rook-ceph-tools rollout to complete
+  command: >
+    kubectl rollout status deployment/rook-ceph-tools
+    --namespace={{ ceph_cluster_namespace }}
+    --timeout={{ ceph_wait_timeout }}s
+  changed_when: false
+
+- name: Validate Ceph cluster health
+  shell: |
+    set -xe
+    TOOLS_POD=$(kubectl get pods \
+      --namespace={{ ceph_cluster_namespace }} \
+      --selector="app=rook-ceph-tools" \
+      --no-headers | grep Running | awk '{ print $1; exit }')
+    kubectl -n {{ ceph_cluster_namespace }} exec ${TOOLS_POD} -- ceph -s
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+# Ceph 20.2.4 (the CVE-2025-30156 fix) adds the aes256k CephX cipher and makes
+# it the default for keys created on a fresh cluster, so every client.<user>
+# credential the OpenStack charts create below is born as a type 2 key.
+#
+# QEMU in the libvirt image cannot read those. It links the librados that the
+# Ubuntu Cloud Archive ships, which predates the aes256k backport (Ceph 19.2.6
+# / 20.2.4), and KeyRing::from_ceph_context() fails to decode a type 2 key and
+# returns -EINVAL. Attaching an RBD volume therefore dies in blockdev-add with
+# "error connecting: Invalid argument" while the volume itself is created
+# fine, because cinder's own librbd is new enough. Every job that deploys both
+# cinder/Ceph and nova fails the heat-vm-volume-attach stack in use-it.sh that
+# way, and only those jobs: cinder without nova and nova without cinder never
+# hand an RBD volume to QEMU.
+#
+# Pin the cipher for newly created keys back to aes, which the Ceph upgrade
+# guide explicitly allows for exactly this case ("You may choose not to do
+# this if you want new keys, by default, to use the older cipher type until
+# your client applications can be upgraded"). The mon, mgr, osd, CSI and
+# client.admin keys Rook created while bootstrapping the cluster above keep
+# aes256k, so only the OpenStack client keys fall back. Rook permits both
+# ciphers by default, so those keys still authenticate.
+#
+# Drop this once the libvirt image carries a Ceph 19.2.6+/20.2.4+ client; the
+# ceph-common in it is built from the cloud archive unless CEPH_REPO is set at
+# image build time.
+- name: Prefer the aes CephX cipher for the OpenStack client keys
+  shell: |
+    set -xe
+    CEPH="kubectl -n {{ ceph_cluster_namespace }} exec deploy/rook-ceph-tools -- ceph"
+
+    ${CEPH} --format=json mon dump > /tmp/ceph-mon-dump.json
+
+    PREFERRED=$(python3 -c "import json; \
+      print(json.load(open('/tmp/ceph-mon-dump.json')).get('auth_preferred_cipher', {}).get('name', ''))")
+    echo "auth_preferred_cipher is '${PREFERRED}'"
+
+    # Empty on releases that predate the aes256k cipher: nothing to pin.
+    if [ -z "${PREFERRED}" ] || [ "${PREFERRED}" == "aes" ]; then
+      echo "nothing to do"
+      exit 0
+    fi
+
+    # New aes keys are only usable while the mons still accept that cipher.
+    # Rook allows every type by default, so this normally just confirms it.
+    ALLOWED=$(python3 -c "import json; \
+      print(','.join(c['name'] for c in json.load(open('/tmp/ceph-mon-dump.json')).get('auth_allowed_ciphers', [])))")
+    echo "auth_allowed_ciphers is '${ALLOWED}'"
+    case ",${ALLOWED}," in
+      *,aes,*) ;;
+      *) ${CEPH} mon set auth_allowed_ciphers "aes,aes256k" ;;
+    esac
+
+    # Ceph may want the override acknowledged when moving back to the weaker
+    # cipher; the plain form is what the upgrade guide documents.
+    ${CEPH} mon set auth_preferred_cipher aes \
+      || ${CEPH} mon set auth_preferred_cipher aes --yes-i-really-mean-it
+
+    ${CEPH} --format=json mon dump \
+      | python3 -c "import json,sys; n=json.load(sys.stdin)['auth_preferred_cipher']['name']; print('now', n); sys.exit(0 if n=='aes' else 1)"
+  args:
+    executable: /bin/bash
+  changed_when: true
+
+# --- Optional CephFS + NFS-Ganesha bring-up ---
+# The CephFilesystem itself is provisioned by the rook-ceph-cluster chart
+# via the cephFileSystems values key (rendered conditionally above).
+- name: Wait for CephFilesystem to reach Ready phase
+  command: >
+    kubectl wait cephfilesystem/{{ ceph_fs_name }}
+    --namespace={{ ceph_cluster_namespace }}
+    --for=jsonpath={.status.phase}=Ready
+    --timeout={{ ceph_wait_timeout }}s
+  changed_when: false
+  when: ceph_enable_cephfs | bool
+
+# Patch the mgr `nfs` module so manila's CephFS driver can call
+# `ceph nfs cluster info` successfully. The rook orchestrator returns
+# Host.addr as "<ip>/<hostname>", and the stock resolve_ip() does
+# socket.getaddrinfo() on the combined string and fails with
+# errno -22 / "Cannot resolve IP for host <ip>/<hostname>". The patch
+# strips the suffix.
+#
+# Patching in-pod doesn't persist (rook may restart mgr containers and
+# the writable layer is wiped), so we mount the patched file via a
+# ConfigMap subPath.
+- name: Render patched mgr nfs cluster.py
+  shell: |
+    set -e
+    MGR=$(kubectl -n {{ ceph_cluster_namespace }} get deploy \
+      -l app=rook-ceph-mgr -o jsonpath='{.items[0].metadata.name}')
+    kubectl -n {{ ceph_cluster_namespace }} exec deploy/${MGR} -- \
+      cat /usr/share/ceph/mgr/nfs/cluster.py > /tmp/mgr-nfs-cluster.py
+    python3 - <<'PY'
+    import sys
+    p = '/tmp/mgr-nfs-cluster.py'
+    s = open(p).read()
+    marker = 'hostname = hostname.split("/")[0]'
+    if marker in s:
+        print('already-patched'); sys.exit(0)
+    needle = 'def resolve_ip(hostname: str) -> str:\n    try:'
+    if needle not in s:
+        sys.stderr.write('resolve_ip pattern not found, cannot patch\n')
+        sys.exit(1)
+    s = s.replace(needle,
+        'def resolve_ip(hostname: str) -> str:\n'
+        '    # Strip "<ip>/<hostname>" suffix that the rook orchestrator\n'
+        '    # adds to Host.addr -- stock resolve_ip cannot handle it.\n'
+        '    hostname = hostname.split("/")[0]\n'
+        '    try:', 1)
+    open(p, 'w').write(s)
+    print('patched')
+    PY
+  args:
+    executable: /bin/bash
+  register: _mgr_nfs_patch
+  changed_when: _mgr_nfs_patch.stdout_lines | last == 'patched'
+  when: ceph_enable_cephfs | bool
+
+- name: Create mgr-nfs-patch ConfigMap
+  shell: |
+    kubectl -n {{ ceph_cluster_namespace }} create configmap mgr-nfs-patch \
+      --from-file=cluster.py=/tmp/mgr-nfs-cluster.py \
+      --dry-run=client -o yaml | kubectl apply -f -
+  args:
+    executable: /bin/bash
+  changed_when: true
+  when: ceph_enable_cephfs | bool
+
+- name: Mount patched cluster.py into mgr deployments
+  shell: |
+    set -e
+    for D in $(kubectl -n {{ ceph_cluster_namespace }} get deploy \
+        -l app=rook-ceph-mgr -o jsonpath='{.items[*].metadata.name}'); do
+      kubectl -n {{ ceph_cluster_namespace }} patch deploy "$D" --type=strategic -p \
+        '{"spec":{"template":{"spec":{"volumes":[{"name":"mgr-nfs-patch","configMap":{"name":"mgr-nfs-patch"}}],"containers":[{"name":"mgr","volumeMounts":[{"name":"mgr-nfs-patch","mountPath":"/usr/share/ceph/mgr/nfs/cluster.py","subPath":"cluster.py","readOnly":true}]}]}}}}'
+    done
+  args:
+    executable: /bin/bash
+  changed_when: true
+  when: ceph_enable_cephfs | bool
+
+- name: Wait for mgr deployments to roll out with patch
+  shell: |
+    set -e
+    for D in $(kubectl -n {{ ceph_cluster_namespace }} get deploy \
+        -l app=rook-ceph-mgr -o jsonpath='{.items[*].metadata.name}'); do
+      kubectl -n {{ ceph_cluster_namespace }} rollout status \
+        deploy/"$D" --timeout={{ ceph_wait_timeout }}s
+    done
+  args:
+    executable: /bin/bash
+  changed_when: false
+  when: ceph_enable_cephfs | bool
+
+# `ceph nfs cluster info` and related commands need the rook
+# orchestrator backend so the mgr can talk to the rook operator.
+- name: Enable rook orchestrator backend
+  shell: |
+    set -xe
+    kubectl -n {{ ceph_cluster_namespace }} exec deploy/rook-ceph-tools -- \
+      ceph mgr module enable rook
+    kubectl -n {{ ceph_cluster_namespace }} exec deploy/rook-ceph-tools -- \
+      ceph orch set backend rook
+  args:
+    executable: /bin/bash
+  changed_when: true
+  when: ceph_enable_cephfs | bool
+
+- name: Render CephNFS manifest
+  template:
+    src: cephnfs.yaml.j2
+    dest: /tmp/cephnfs.yaml
+    mode: "0644"
+  when: ceph_enable_cephfs | bool
+
+- name: Apply CephNFS manifest
+  command: kubectl apply -f /tmp/cephnfs.yaml
+  changed_when: true
+  when: ceph_enable_cephfs | bool
+
+- name: Wait for CephNFS to reach Ready phase
+  command: >
+    kubectl wait cephnfs/{{ ceph_nfs_cluster_id }}
+    --namespace={{ ceph_cluster_namespace }}
+    --for=jsonpath={.status.phase}=Ready
+    --timeout={{ ceph_wait_timeout }}s
+  changed_when: false
+  when: ceph_enable_cephfs | bool
+

@@ -38,18 +38,18 @@ release_group: null
 images:
   tags:
     test: docker.io/xrally/xrally-openstack:2.0.0
-    bootstrap: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
-    db_init: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    watcher_db_sync: quay.io/airshipit/watcher:2025.1-ubuntu_noble
-    db_drop: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    rabbit_init: docker.io/rabbitmq:3.13-management
-    ks_user: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_service: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_endpoints: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    watcher_api: quay.io/airshipit/watcher:2025.1-ubuntu_noble
-    watcher_decision_engine: quay.io/airshipit/watcher:2025.1-ubuntu_noble
-    watcher_applier: quay.io/airshipit/watcher:2025.1-ubuntu_noble
+    bootstrap: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_noble
+    db_init: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    watcher_db_sync: quay.io/airshipit/watcher:2026.1-ubuntu_noble
+    db_drop: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    rabbit_init: docker.io/rabbitmq:4.3.5-management
+    ks_user: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_service: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_endpoints: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    watcher_api: quay.io/airshipit/watcher:2026.1-ubuntu_noble
+    watcher_decision_engine: quay.io/airshipit/watcher:2026.1-ubuntu_noble
+    watcher_applier: quay.io/airshipit/watcher:2026.1-ubuntu_noble
     image_repo_sync: docker.io/docker:17.07.0
   pull_policy: "IfNotPresent"
   local_registry:
@@ -60,14 +60,6 @@ images:
 
 network:
   api:
-    ingress:
-      public: true
-      classes:
-        namespace: "ingress-openstack"
-        cluster: "ingress-cluster"
-      annotations:
-        nginx.ingress.kubernetes.io/rewrite-target: /
-        haproxy.org/path-rewrite: /
     node_port:
       enabled: false
       port: 31233
@@ -172,7 +164,6 @@ secrets:
     test: watcher-keystone-test
   oslo_db:
     admin: watcher-db-admin
-    watcher: watcher-db-user
   oslo_messaging:
     admin: watcher-rabbitmq-admin
     watcher: watcher-rabbitmq-user
@@ -180,6 +171,11 @@ secrets:
     watcher: watcher-oci-image-registry
 
 # typically overridden by environmental
+identity:
+  openrc:
+    exclude_vars: []
+    extra_vars: []
+
 # values, but should include all endpoints
 # required by this chart
 endpoints:
@@ -346,6 +342,19 @@ conf:
       host: '0.0.0.0'
     database:
       max_retries: -1
+      # -- Database connection URI. When empty the URI is auto-generated
+      ## from endpoints.oslo_db. Set to null to disable auto-generation,
+      ## e.g. when using an operator such as mariadb-operator that supplies
+      ## the connection string via a mounted configuration snippet.
+      connection: ""
+    oslo_messaging_rabbit:
+      # -- Durable and quorum queues, which RabbitMQ 4.x requires: it denies
+      ## transient non-exclusive queues, and oslo.messaging declares its RPC,
+      ## notification, reply and fanout queues that way otherwise. Valid on 3.x.
+      amqp_durable_queues: true
+      rabbit_quorum_queue: true
+      rabbit_transient_quorum_queue: true
+      use_queue_manager: true
     keystone_authtoken:
       auth_type: password
       auth_version: v3
@@ -355,6 +364,8 @@ conf:
       certfile: null
       keyfile: null
       insecure: false
+    oslo_concurrency:
+      lock_path: /var/lock
   logging:
     loggers:
       keys:
@@ -587,7 +598,6 @@ manifests:
   configmap_etc: true
   deployment_api: true
   deployment_applier: true
-  ingress_api: true
   job_bootstrap: true
   job_db_init: true
   job_db_sync: true
@@ -604,7 +614,39 @@ manifests:
   secret_keystone: true
   secret_rabbitmq: true
   secret_registry: true
-  service_ingress_api: true
   service_api: true
   statefulset_decision_engine: true
+# -- Extra K8s manifests to deploy. Either a list or a map of manifests.
+## Note: Supports use of custom Helm templates
+## Note: Helm replaces (instead of merging) list values when several values
+## files are combined, so if you need to define extraObjects in more than one
+## overrides file, use the map form and make sure the keys are unique across
+## those files. With the list form only the last file takes effect.
+extraObjects: {}
+  # osh_secrets_store:
+  #   apiVersion: secrets-store.csi.x-k8s.io/v1
+  #   kind: SecretProviderClass
+  #   metadata:
+  #     name: osh-secrets-store
+  #   spec:
+  #     provider: aws
+  #     parameters:
+  #       objects: |
+  #         - objectName: "osh"
+  #           objectType: "secretsmanager"
+  #           jmesPath:
+  #               - path: "client_id"
+  #                 objectAlias: "client_id"
+  #               - path: "client_secret"
+  #                 objectAlias: "client_secret"
+  #     secretObjects:
+  #     - data:
+  #       - key: client_id
+  #         objectName: client_id
+  #       - key: client_secret
+  #         objectName: client_secret
+  #       secretName: osh-secrets-store
+  #       type: Opaque
+  #       labels:
+  #         app.kubernetes.io/part-of: osh
 ...

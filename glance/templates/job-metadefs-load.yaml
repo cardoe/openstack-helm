@@ -15,6 +15,8 @@ limitations under the License.
 {{- if .Values.manifests.job_metadefs_load }}
 {{- $envAll := . }}
 
+{{- $etcSources := .Values.pod.etcSources.glance_metadefs_load }}
+
 {{- $serviceAccountName := "glance-metadefs-load" }}
 {{ tuple $envAll "metadefs_load" $serviceAccountName | include "helm-toolkit.snippets.kubernetes_pod_rbac_serviceaccount" }}
 ---
@@ -25,9 +27,7 @@ metadata:
   labels:
 {{ tuple $envAll "glance" "metadefs-load" | include "helm-toolkit.snippets.kubernetes_metadata_labels" | indent 4 }}
   annotations:
-{{- if .Values.helm3_hook }}
     helm.sh/hook: post-install,post-upgrade
-{{- end }}
 {{ tuple $serviceAccountName $envAll | include "helm-toolkit.snippets.custom_job_annotations" | indent 4 }}
     {{ tuple $envAll | include "helm-toolkit.snippets.release_uuid" }}
 spec:
@@ -74,13 +74,16 @@ spec:
               mountPath: /etc/glance/glance-api.conf
               subPath: glance-api.conf
               readOnly: true
+            - name: glance-etc-snippets
+              mountPath: /etc/glance/glance.conf.d/
+              readOnly: true
             {{- if .Values.conf.glance.DEFAULT.log_config_append }}
             - name: glance-etc
               mountPath: {{ .Values.conf.glance.DEFAULT.log_config_append }}
               subPath: {{ base .Values.conf.glance.DEFAULT.log_config_append }}
               readOnly: true
             {{- end }}
-{{- dict "enabled" $envAll.Values.manifests.certificates "name" $envAll.Values.endpoints.oslo_db.auth.admin.secret.tls.internal "path" "/etc/mysql/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
+{{- dict "enabled" $envAll.Values.tls.oslo_db "name" "client-certs" "path" "/etc/mysql/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
       volumes:
         - name: pod-tmp
           emptyDir: {}
@@ -94,5 +97,13 @@ spec:
           secret:
             secretName: glance-etc
             defaultMode: 0444
-{{- dict "enabled" $envAll.Values.manifests.certificates "name" $envAll.Values.endpoints.oslo_db.auth.admin.secret.tls.internal | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
+        - name: glance-etc-snippets
+{{- if $etcSources }}
+          projected:
+            sources:
+{{ toYaml $etcSources | indent 14 }}
+{{- else }}
+          emptyDir: {}
+{{ end }}
+{{- dict "enabled" (or $envAll.Values.tls.oslo_db $envAll.Values.tls.oslo_messaging) "name" "client-certs" "secretName" $envAll.Values.secrets.tls.client.glance | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
 {{- end }}

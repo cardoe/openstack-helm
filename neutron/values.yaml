@@ -20,35 +20,37 @@ release_group: null
 
 images:
   tags:
-    bootstrap: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
+    bootstrap: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
     test: docker.io/xrally/xrally-openstack:2.0.0
-    db_init: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    neutron_db_sync: quay.io/airshipit/neutron:2025.1-ubuntu_noble
-    db_drop: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    rabbit_init: docker.io/rabbitmq:3.13-management
-    ks_user: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_service: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_endpoints: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
+    db_init: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    neutron_db_sync: quay.io/airshipit/neutron:2026.1-ubuntu_noble
+    db_drop: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    rabbit_init: docker.io/rabbitmq:4.3.5-management
+    ks_user: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_service: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_endpoints: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
     netoffload: ghcr.io/vexxhost/netoffload:v1.0.1
-    neutron_server: quay.io/airshipit/neutron:2025.1-ubuntu_noble
-    neutron_rpc_server: quay.io/airshipit/neutron:2025.1-ubuntu_noble
-    neutron_dhcp: quay.io/airshipit/neutron:2025.1-ubuntu_noble
-    neutron_metadata: quay.io/airshipit/neutron:2025.1-ubuntu_noble
-    neutron_ovn_metadata: quay.io/airshipit/neutron:2025.1-ubuntu_noble
-    neutron_ovn_db_sync: quay.io/airshipit/neutron:2025.1-ubuntu_noble
-    neutron_ovn_vpn: quay.io/airshipit/neutron:2025.1-ubuntu_noble
-    neutron_l3: quay.io/airshipit/neutron:2025.1-ubuntu_noble
-    neutron_l2gw: quay.io/airshipit/neutron:2025.1-ubuntu_noble
-    neutron_openvswitch_agent: quay.io/airshipit/neutron:2025.1-ubuntu_noble
-    neutron_linuxbridge_agent: quay.io/airshipit/neutron:2025.1-ubuntu_noble
+    neutron_server: quay.io/airshipit/neutron:2026.1-ubuntu_noble
+    neutron_rpc_server: quay.io/airshipit/neutron:2026.1-ubuntu_noble
+    neutron_periodic_worker: quay.io/airshipit/neutron:2026.1-ubuntu_noble
+    neutron_ovn_maintenance_worker: quay.io/airshipit/neutron:2026.1-ubuntu_noble
+    neutron_dhcp: quay.io/airshipit/neutron:2026.1-ubuntu_noble
+    neutron_metadata: quay.io/airshipit/neutron:2026.1-ubuntu_noble
+    neutron_ovn_agent: quay.io/airshipit/neutron:2026.1-ubuntu_noble
+    neutron_ovn_metadata: quay.io/airshipit/neutron:2026.1-ubuntu_noble
+    neutron_ovn_db_sync: quay.io/airshipit/neutron:2026.1-ubuntu_noble
+    neutron_ovn_vpn: quay.io/airshipit/neutron:2026.1-ubuntu_noble
+    neutron_l3: quay.io/airshipit/neutron:2026.1-ubuntu_noble
+    neutron_l2gw: quay.io/airshipit/neutron:2026.1-ubuntu_noble
+    neutron_openvswitch_agent: quay.io/airshipit/neutron:2026.1-ubuntu_noble
     neutron_sriov_agent: quay.io/airshipit/neutron:stein-18.04-sriov
     neutron_sriov_agent_init: quay.io/airshipit/neutron:stein-18.04-sriov
-    neutron_bagpipe_bgp: quay.io/airshipit/neutron:2025.1-ubuntu_noble
-    neutron_bgp_dragent: quay.io/airshipit/neutron:2025.1-ubuntu_noble
-    neutron_ironic_agent_init: quay.io/airshipit/neutron:2025.1-ubuntu_noble
-    neutron_ironic_agent: quay.io/airshipit/neutron:2025.1-ubuntu_noble
-    neutron_netns_cleanup_cron: quay.io/airshipit/neutron:2025.1-ubuntu_noble
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
+    neutron_bagpipe_bgp: quay.io/airshipit/neutron:2026.1-ubuntu_noble
+    neutron_bgp_dragent: quay.io/airshipit/neutron:2026.1-ubuntu_noble
+    neutron_ironic_agent_init: quay.io/airshipit/neutron:2026.1-ubuntu_noble
+    neutron_ironic_agent: quay.io/airshipit/neutron:2026.1-ubuntu_noble
+    neutron_netns_cleanup_cron: quay.io/airshipit/neutron:2026.1-ubuntu_noble
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_noble
     image_repo_sync: docker.io/docker:17.07.0
   pull_policy: "IfNotPresent"
   local_registry:
@@ -77,9 +79,6 @@ labels:
   job:
     node_selector_key: openstack-control-plane
     node_selector_value: enabled
-  lb:
-    node_selector_key: linuxbridge
-    node_selector_value: enabled
   # openvswitch is a special case, requiring a special
   # label that can apply to both control hosts
   # and compute hosts, until we get more sophisticated
@@ -100,6 +99,12 @@ labels:
     node_selector_key: openstack-control-plane
     node_selector_value: enabled
   rpc_server:
+    node_selector_key: openstack-control-plane
+    node_selector_value: enabled
+  periodic_worker:
+    node_selector_key: openstack-control-plane
+    node_selector_value: enabled
+  ovn_maintenance_worker:
     node_selector_key: openstack-control-plane
     node_selector_value: enabled
   ironic_agent:
@@ -140,14 +145,9 @@ network:
   #       - num_queues: 16
   #         exclude_vf: 0,11,21
   server:
-    ingress:
-      public: true
-      classes:
-        namespace: "ingress-openstack"
-        cluster: "ingress-cluster"
-      annotations:
-        nginx.ingress.kubernetes.io/rewrite-target: /
-        haproxy.org/path-rewrite: /
+    # Pod port the Service routes to; null => Kubernetes uses the Service port.
+    # A deployment override sets this (e.g. 443) to point at a TLS sidecar.
+    target_port: null
     external_policy_local: false
     node_port:
       enabled: false
@@ -195,27 +195,6 @@ dependencies:
               labels:
                 application: neutron
                 component: neutron-ovs-agent
-      linuxbridge:
-        dhcp:
-          pod:
-            - requireSameNode: true
-              labels:
-                application: neutron
-                component: neutron-lb-agent
-        l3:
-          pod:
-            - requireSameNode: true
-              labels:
-                application: neutron
-                component: neutron-lb-agent
-        metadata:
-          pod:
-            - requireSameNode: true
-              labels:
-                application: neutron
-                component: neutron-lb-agent
-        lb_agent:
-          pod: null
   static:
     bootstrap:
       services:
@@ -277,15 +256,6 @@ dependencies:
           service: network
         - endpoint: internal
           service: compute
-    lb_agent:
-      pod: null
-      jobs:
-        - neutron-rabbit-init
-      services:
-        - endpoint: internal
-          service: oslo_messaging
-        - endpoint: internal
-          service: network
     metadata:
       pod: null
       jobs:
@@ -297,8 +267,19 @@ dependencies:
           service: network
         - endpoint: internal
           service: compute
-        - endpoint: public
+        - endpoint: internal
           service: compute_metadata
+    ovn_agent:
+      pod:
+        - requireSameNode: true
+          labels:
+            application: ovn
+            component: ovn-controller
+      services:
+        - endpoint: internal
+          service: compute_metadata
+        - endpoint: internal
+          service: network
     ovn_metadata:
       pod:
         - requireSameNode: true
@@ -362,6 +343,32 @@ dependencies:
           service: oslo_cache
         - endpoint: internal
           service: identity
+    periodic_worker:
+      jobs:
+        - neutron-db-sync
+        - neutron-rabbit-init
+      services:
+        - endpoint: internal
+          service: oslo_db
+        - endpoint: internal
+          service: oslo_messaging
+        - endpoint: internal
+          service: oslo_cache
+        - endpoint: internal
+          service: identity
+    ovn_maintenance_worker:
+      jobs:
+        - neutron-db-sync
+        - neutron-rabbit-init
+      services:
+        - endpoint: internal
+          service: oslo_db
+        - endpoint: internal
+          service: oslo_messaging
+        - endpoint: internal
+          service: oslo_cache
+        - endpoint: internal
+          service: identity
     ironic_agent:
       jobs:
         - neutron-db-sync
@@ -389,11 +396,31 @@ dependencies:
           service: local_image_registry
 
 pod:
+  ## Extra containers and volumes to inject into the neutron-server
+  ## Deployment. Used e.g. by values_overrides/neutron/api-tls.yaml to add an
+  ## nginx TLS-terminating sidecar. Keyed per component.
+  extraContainers:
+    neutron_server: []
+  extraVolumes:
+    neutron_server: []
   use_fqdn:
     neutron_agent: true
   probes:
     rpc_timeout: 60
     rpc_retries: 2
+    ironic_agent:
+      ironic_agent:
+        # NOTE: this probes the neutron server on the agent state report
+        # topic, not the agent itself, because the ironic agent only casts
+        # its state and cannot observe whether it was received. Readiness
+        # only: a liveness probe here would restart every agent whenever
+        # the neutron server RPC workers are unavailable.
+        readiness:
+          enabled: true
+          params:
+            initialDelaySeconds: 30
+            periodSeconds: 190
+            timeoutSeconds: 185
     dhcp_agent:
       dhcp_agent:
         readiness:
@@ -422,10 +449,6 @@ pod:
             initialDelaySeconds: 120
             periodSeconds: 600
             timeoutSeconds: 580
-    lb_agent:
-      lb_agent:
-        readiness:
-          enabled: true
     metadata_agent:
       metadata_agent:
         readiness:
@@ -442,6 +465,20 @@ pod:
             timeoutSeconds: 580
     ovn_vpn_agent:
       ovn_vpn_agent:
+        readiness:
+          enabled: true
+          params:
+            initialDelaySeconds: 30
+            periodSeconds: 190
+            timeoutSeconds: 185
+        liveness:
+          enabled: true
+          params:
+            initialDelaySeconds: 120
+            periodSeconds: 600
+            timeoutSeconds: 580
+    ovn_agent:
+      ovn_agent:
         readiness:
           enabled: true
           params:
@@ -552,6 +589,11 @@ pod:
       pod:
         runAsUser: 42424
       container:
+        ovn_neutron_init:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+        neutron_dhcp_agent_init:
+          readOnlyRootFilesystem: true
         neutron_dhcp_agent:
           readOnlyRootFilesystem: true
           privileged: true
@@ -580,25 +622,9 @@ pod:
       pod:
         runAsUser: 42424
       container:
+        neutron_l3_agent_init:
+          readOnlyRootFilesystem: true
         neutron_l3_agent:
-          readOnlyRootFilesystem: true
-          privileged: true
-    neutron_lb_agent:
-      pod:
-        runAsUser: 42424
-      container:
-        neutron_lb_agent_kernel_modules:
-          capabilities:
-            add:
-              - SYS_MODULE
-              - SYS_CHROOT
-          runAsUser: 0
-          readOnlyRootFilesystem: true
-        neutron_lb_agent_init:
-          privileged: true
-          runAsUser: 0
-          readOnlyRootFilesystem: true
-        neutron_lb_agent:
           readOnlyRootFilesystem: true
           privileged: true
     neutron_metadata_agent:
@@ -608,10 +634,28 @@ pod:
         neutron_metadata_agent_init:
           runAsUser: 0
           readOnlyRootFilesystem: true
+    neutron_ovn_db_sync:
+      container:
+        ovn_neutron_init:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+    neutron_ovn_agent:
+      pod:
+        runAsUser: 42424
+      container:
+        ovn_neutron_init:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+        neutron_ovn_agent_init:
+          runAsUser: 0
+          readOnlyRootFilesystem: true
     neutron_ovn_metadata_agent:
       pod:
         runAsUser: 42424
       container:
+        ovn_neutron_init:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
         neutron_ovn_metadata_agent_init:
           runAsUser: 0
           readOnlyRootFilesystem: true
@@ -619,6 +663,9 @@ pod:
       pod:
         runAsUser: 42424
       container:
+        ovn_neutron_init:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
         ovn_vpn_agent_init:
           runAsUser: 0
           readOnlyRootFilesystem: true
@@ -648,9 +695,9 @@ pod:
       pod:
         runAsUser: 42424
       container:
-        nginx:
-          runAsUser: 0
-          readOnlyRootFilesystem: false
+        ovn_neutron_init:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
         neutron_server:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
@@ -658,7 +705,30 @@ pod:
       pod:
         runAsUser: 42424
       container:
+        ovn_neutron_init:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
         neutron_rpc_server:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+    neutron_periodic_worker:
+      pod:
+        runAsUser: 42424
+      container:
+        ovn_neutron_init:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+        neutron_periodic_worker:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+    neutron_ovn_maintenance_worker:
+      pod:
+        runAsUser: 42424
+      container:
+        ovn_neutron_init:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+        neutron_ovn_maintenance_worker:
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: true
     neutron_sriov_agent:
@@ -676,6 +746,9 @@ pod:
       pod:
         runAsUser: 42424
       container:
+        ovn_neutron_init:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
         neutron_ironic_agent_init:
           runAsUser: 0
           readOnlyRootFilesystem: true
@@ -718,6 +791,16 @@ pod:
       neutron_rpc_server:
         volumeMounts:
         volumes:
+    neutron_periodic_worker:
+      init_container: null
+      neutron_periodic_worker:
+        volumeMounts:
+        volumes:
+    neutron_ovn_maintenance_worker:
+      init_container: null
+      neutron_ovn_maintenance_worker:
+        volumeMounts:
+        volumes:
     neutron_dhcp_agent:
       init_container: null
       neutron_dhcp_agent:
@@ -728,11 +811,6 @@ pod:
       neutron_l3_agent:
         volumeMounts:
         volumes:
-    neutron_lb_agent:
-      init_container: null
-      neutron_lb_agent:
-        volumeMounts:
-        volumes:
     neutron_metadata_agent:
       init_container: null
       neutron_metadata_agent:
@@ -741,6 +819,11 @@ pod:
     neutron_ovn_db_sync:
       init_container: null
       neutron_ovn_db_sync:
+        volumeMounts:
+        volumes:
+    neutron_ovn_agent:
+      init_container: null
+      neutron_ovn_agent:
         volumeMounts:
         volumes:
     neutron_ovn_metadata_agent:
@@ -812,11 +895,13 @@ pod:
   etcSources:
     neutron_server: []
     neutron_rpc_server: []
+    neutron_periodic_worker: []
+    neutron_ovn_maintenance_worker: []
     neutron_dhcp_agent: []
     neutron_l3_agent: []
-    neutron_lb_agent: []
     neutron_metadata_agent: []
     neutron_ovn_db_sync: []
+    neutron_ovn_agent: []
     neutron_ovn_metadata_agent: []
     ovn_vpn_agent: []
     neutron_ovs_agent: []
@@ -832,9 +917,13 @@ pod:
   replicas:
     server: 1
     rpc_server: 1
+    periodic_worker: 1
+    ovn_maintenance_worker: 1
     ironic_agent: 1
   lifecycle:
     upgrades:
+      statefulsets:
+        pod_replacement_strategy: RollingUpdate
       deployments:
         revision_history: 3
         pod_replacement_strategy: RollingUpdate
@@ -851,11 +940,11 @@ pod:
           enabled: true
           min_ready_seconds: 0
           max_unavailable: 1
-        lb_agent:
+        metadata_agent:
           enabled: true
           min_ready_seconds: 0
           max_unavailable: 1
-        metadata_agent:
+        ovn_agent:
           enabled: true
           min_ready_seconds: 0
           max_unavailable: 1
@@ -879,6 +968,18 @@ pod:
           enabled: true
           min_ready_seconds: 0
           max_unavailable: 1
+        bagpipe_bgp:
+          enabled: true
+          min_ready_seconds: 0
+          max_unavailable: 1
+        bgp_dragent:
+          enabled: true
+          min_ready_seconds: 0
+          max_unavailable: 1
+        l2gw_agent:
+          enabled: true
+          min_ready_seconds: 0
+          max_unavailable: 1
     disruption_budget:
       server:
         min_available: 0
@@ -886,6 +987,10 @@ pod:
       server:
         timeout: 30
       rpc_server:
+        timeout: 30
+      periodic_worker:
+        timeout: 30
+      ovn_maintenance_worker:
         timeout: 30
       ironic_agent:
         timeout: 30
@@ -906,14 +1011,14 @@ pod:
         limits:
           memory: "1024Mi"
           cpu: "2000m"
-      lb:
+      metadata:
         requests:
           memory: "128Mi"
           cpu: "100m"
         limits:
           memory: "1024Mi"
           cpu: "2000m"
-      metadata:
+      ovn:
         requests:
           memory: "128Mi"
           cpu: "100m"
@@ -970,6 +1075,27 @@ pod:
           memory: "1024Mi"
           cpu: "2000m"
     server:
+      requests:
+        memory: "128Mi"
+        cpu: "100m"
+      limits:
+        memory: "1024Mi"
+        cpu: "2000m"
+    rpc_server:
+      requests:
+        memory: "128Mi"
+        cpu: "100m"
+      limits:
+        memory: "1024Mi"
+        cpu: "2000m"
+    periodic_worker:
+      requests:
+        memory: "128Mi"
+        cpu: "100m"
+      limits:
+        memory: "1024Mi"
+        cpu: "2000m"
+    ovn_maintenance_worker:
       requests:
         memory: "128Mi"
         cpu: "100m"
@@ -1361,6 +1487,7 @@ conf:
     composite:neutron:
       use: egg:Paste#urlmap
       /: neutronversions_composite
+      /healthcheck: healthcheck
       /v2.0: neutronapi_v2_0
     composite:neutronapi_v2_0:
       use: call:neutron.auth:pipeline_factory
@@ -1392,6 +1519,11 @@ conf:
       paste.app_factory: neutron.pecan_wsgi.app:versions_factory
     app:neutronapiapp_v2_0:
       paste.app_factory: neutron.api.v2.router:APIRouter.factory
+    app:healthcheck:
+      paste.app_factory: oslo_middleware:Healthcheck.app_factory
+      backends: disable_by_file
+      # state_path is writable; drain a pod by touching this file.
+      disable_by_file_path: /var/lib/neutron/healthcheck_disable
     filter:osprofiler:
       paste.filter_factory: osprofiler.web:WsgiMiddleware.factory
   neutron_api_uwsgi:
@@ -1405,6 +1537,10 @@ conf:
       lazy-apps: true
       log-x-forwarded-for: true
       master: true
+      # Without need-app uWSGI stays up when the application cannot be
+      # imported, answering every request with a plain HTTP 500 while looking
+      # healthy to the container runtime.
+      need-app: true
       procname-prefix-spaced: "neutron-api:"
       route-user-agent: '^kube-probe.* donotlog:'
       # start-time provides unix time at instance startup, used by ML2/OVN
@@ -1413,7 +1549,7 @@ conf:
       start-time: "%t"
       thunder-lock: true
       worker-reload-mercy: 80
-      wsgi-file: /var/lib/openstack/bin/neutron-api
+      module: neutron.wsgi.api:application
       stats: 0.0.0.0:1717
       stats-http: true
   policy: {}
@@ -1427,7 +1563,6 @@ conf:
       floatingips: ip
       healthmonitors: healthmonitor
       health_monitors: health_monitor
-      lb: None
       members: member
       metering-labels: label
       metering-label-rules: rule
@@ -1481,7 +1616,6 @@ conf:
       pods:
         - dhcp_agent
         - l3_agent
-        - lb_agent
         - metadata_agent
         - ovn_metadata_agent
         - ovn_vpn_agent
@@ -1510,8 +1644,8 @@ conf:
       pods:
         - dhcp_agent
         - l3_agent
-        - lb_agent
         - metadata_agent
+        - ovn_agent
         - ovn_metadata_agent
         - ovn_vpn_agent
         - ovs_agent
@@ -1537,7 +1671,6 @@ conf:
       pods:
         - dhcp_agent
         - l3_agent
-        - lb_agent
         - metadata_agent
         - ovn_metadata_agent
         - ovn_vpn_agent
@@ -1560,8 +1693,8 @@ conf:
       pods:
         - dhcp_agent
         - l3_agent
-        - lb_agent
         - metadata_agent
+        - ovn_agent
         - ovn_metadata_agent
         - ovn_vpn_agent
         - ovs_agent
@@ -1652,8 +1785,8 @@ conf:
       pods:
         - dhcp_agent
         - l3_agent
-        - lb_agent
         - metadata_agent
+        - ovn_agent
         - ovn_metadata_agent
         - ovn_vpn_agent
         - ovs_agent
@@ -1676,7 +1809,6 @@ conf:
       pods:
         - dhcp_agent
         - l3_agent
-        - lb_agent
         - metadata_agent
         - ovn_metadata_agent
         - ovn_vpn_agent
@@ -1727,7 +1859,6 @@ conf:
       pods:
         - dhcp_agent
         - l3_agent
-        - lb_agent
         - metadata_agent
         - ovn_metadata_agent
         - ovn_vpn_agent
@@ -1749,8 +1880,8 @@ conf:
       pods:
         - dhcp_agent
         - l3_agent
-        - lb_agent
         - metadata_agent
+        - ovn_agent
         - ovn_metadata_agent
         - ovn_vpn_agent
         - ovs_agent
@@ -1783,50 +1914,10 @@ conf:
 
         # neutron/agent/linux/ip_conntrack.py
         conntrack: CommandFilter, conntrack, root
-    linuxbridge_plugin:
-      pods:
-        - dhcp_agent
-        - l3_agent
-        - lb_agent
-        - metadata_agent
-        - ovn_metadata_agent
-        - ovn_vpn_agent
-        - ovs_agent
-        - sriov_agent
-      content: |
-        # neutron-rootwrap command filters for nodes on which neutron is
-        # expected to control network
-        #
-        # This file should be owned by (and only-writeable by) the root user
-
-        # format seems to be
-        # cmd-name: filter-name, raw-command, user, args
-
-        [Filters]
-
-        # linuxbridge-agent
-        # unclear whether both variants are necessary, but I'm transliterating
-        # from the old mechanism
-        brctl: CommandFilter, brctl, root
-        bridge: CommandFilter, bridge, root
-
-        # ip_lib
-        ip: IpFilter, ip, root
-        find: RegExpFilter, find, root, find, /sys/class/net, -maxdepth, 1, -type, l, -printf, %.*
-        ip_exec: IpNetnsExecFilter, ip, root
-
-        # tc commands needed for QoS support
-        tc_replace_tbf: RegExpFilter, tc, root, tc, qdisc, replace, dev, .+, root, tbf, rate, .+, latency, .+, burst, .+
-        tc_add_ingress: RegExpFilter, tc, root, tc, qdisc, add, dev, .+, ingress, handle, .+
-        tc_delete: RegExpFilter, tc, root, tc, qdisc, del, dev, .+, .+
-        tc_show_qdisc: RegExpFilter, tc, root, tc, qdisc, show, dev, .+
-        tc_show_filters: RegExpFilter, tc, root, tc, filter, show, dev, .+, parent, .+
-        tc_add_filter: RegExpFilter, tc, root, tc, filter, add, dev, .+, parent, .+, protocol, all, prio, .+, basic, police, rate, .+, burst, .+, mtu, .+, drop
     openvswitch_plugin:
       pods:
         - dhcp_agent
         - l3_agent
-        - lb_agent
         - metadata_agent
         - ovn_metadata_agent
         - ovn_vpn_agent
@@ -1865,8 +1956,8 @@ conf:
       pods:
         - dhcp_agent
         - l3_agent
-        - lb_agent
         - metadata_agent
+        - ovn_agent
         - ovn_metadata_agent
         - ovn_vpn_agent
         - ovs_agent
@@ -1969,7 +2060,7 @@ conf:
       state_path: /var/lib/neutron
       # core_plugin can be: ml2, calico
       core_plugin: ml2
-      # service_plugin can be: router, odl-router, empty for calico,
+      # service_plugin can be: router, empty for calico,
       # networking_ovn.l3.l3_ovn.OVNL3RouterPlugin for OVN
       service_plugins: router
       allow_automatic_l3agent_failover: True
@@ -1982,16 +2073,31 @@ conf:
       # 'network.backend' to sane defaults.
       interface_driver: null
     oslo_concurrency:
-      lock_path: /var/lib/neutron/tmp
+      lock_path: /var/lock
     database:
       max_retries: -1
+      # -- Database connection URI. When empty the URI is auto-generated
+      ## from endpoints.oslo_db. Set to null to disable auto-generation,
+      ## e.g. when using an operator such as mariadb-operator that supplies
+      ## the connection string via a mounted configuration snippet.
+      connection: ""
     agent:
       root_helper: sudo /var/lib/openstack/bin/neutron-rootwrap /etc/neutron/rootwrap.conf
       root_helper_daemon: sudo /var/lib/openstack/bin/neutron-rootwrap-daemon /etc/neutron/rootwrap.conf
     oslo_messaging_notifications:
       driver: messagingv2
     oslo_messaging_rabbit:
-      rabbit_ha_queues: true
+      rabbit_ha_queues: false
+      # -- Durable queues are required by RabbitMQ 4.x, which denies
+      ## transient non-exclusive queues by default. Also valid on 3.x.
+      amqp_durable_queues: true
+      # -- Quorum queues, which RabbitMQ 4.x requires: it denies transient
+      ## non-exclusive queues, and oslo.messaging declares its reply and fanout
+      ## queues that way unless the transient ones are quorum too.
+      ## amqp_durable_queues alone only covers the RPC and notification queues.
+      rabbit_quorum_queue: true
+      rabbit_transient_quorum_queue: true
+      use_queue_manager: true
     oslo_middleware:
       enable_proxy_headers_parsing: true
     oslo_policy:
@@ -2128,19 +2234,6 @@ conf:
         bridge_mappings: "external:br-ex"
       securitygroup:
         firewall_driver: neutron.agent.linux.iptables_firewall.OVSHybridIptablesFirewallDriver
-    linuxbridge_agent:
-      linux_bridge:
-        # To define Flat and VLAN connections, in LB we can assign
-        # specific interface to the flat/vlan network name using:
-        # physical_interface_mappings: "external:eth3"
-        # Or we can set the mapping between the network and bridge:
-        bridge_mappings: "external:br-ex"
-        # The two above options are exclusive, do not use both of them at once
-      securitygroup:
-        firewall_driver: iptables
-      vxlan:
-        l2_population: True
-        arp_responder: True
     macvtap_agent: null
     sriov_agent:
       securitygroup:
@@ -2201,6 +2294,20 @@ conf:
       enabled: true
       backend: dogpile.cache.memcached
   bagpipe_bgp: {}
+  ovn_agent:
+    DEFAULT:
+      # we cannot change the proxy socket path as it is declared
+      # as a hostPath volume from agent daemonsets
+      metadata_proxy_socket: /var/lib/neutron/openstack-helm/metadata_proxy
+      metadata_proxy_shared_secret: "password"
+      metadata_workers: 2
+    agent:
+      extensions: metadata
+    cache:
+      enabled: true
+      backend: dogpile.cache.memcached
+    ovs:
+      ovsdb_connection: unix:/run/openvswitch/db.sock
   ovn_metadata_agent:
     DEFAULT:
       # we cannot change the proxy socket path as it is declared
@@ -2213,17 +2320,16 @@ conf:
       backend: dogpile.cache.memcached
     ovs:
       ovsdb_connection: unix:/run/openvswitch/db.sock
+  ovn_metadata_agent_init:
+    chown_ovsdb_sock: true
   bgp_dragent: {}
 
   rabbitmq:
-    # NOTE(rk760n): adding rmq policy to mirror messages from notification queues and set expiration time for the ones
+    # NOTE(rk760n): adding rmq policy to set an expiration time on notification queues
     policies:
       - vhost: "neutron"
         name: "ha_ttl_neutron"
         definition:
-          # mirror messges to other nodes in rmq cluster
-          ha-mode: "all"
-          ha-sync-mode: "automatic"
           # 70s
           message-ttl: 70000
         priority: 0
@@ -2353,22 +2459,30 @@ secrets:
     test: neutron-keystone-test
   oslo_db:
     admin: neutron-db-admin
-    neutron: neutron-db-user
   oslo_messaging:
     admin: neutron-rabbitmq-admin
     neutron: neutron-rabbitmq-user
   tls:
-    compute_metadata:
-      metadata:
-        internal: metadata-tls-metadata
-    network:
-      server:
-        public: neutron-tls-public
-        internal: neutron-tls-server
+    # Client certificate this chart presents for all mTLS backend connections
+    # (MariaDB and RabbitMQ). Separate from the MariaDB and RabbitMQ server certs.
+    client:
+      neutron: neutron-client
+    # CA bundle this chart trusts for OUTBOUND TLS calls (keystone, nova,
+    # nova-metadata). Null by default -> no CA is mounted and REQUESTS_CA_BUNDLE
+    # is left unset. A deployment override points this at a cert-manager secret
+    # carrying a ca.crt; it is mounted at /etc/ssl/certs/openstack-helm.crt.
+    # Assumes every server cert is signed by this single CA. The chart stays
+    # TLS-agnostic -- server certs and the nginx TLS sidecar live in the override.
+    ca: null
   oci_image_registry:
     neutron: neutron-oci-image-registry
 
 # typically overridden by environmental
+identity:
+  openrc:
+    exclude_vars: []
+    extra_vars: []
+
 # values, but should include all endpoints
 # required by this chart
 endpoints:
@@ -2405,9 +2519,6 @@ endpoints:
       admin:
         username: root
         password: password
-        secret:
-          tls:
-            internal: mariadb-tls-direct
       neutron:
         username: neutron
         password: password
@@ -2425,9 +2536,6 @@ endpoints:
       admin:
         username: rabbitmq
         password: password
-        secret:
-          tls:
-            internal: rabbitmq-tls-direct
       neutron:
         username: neutron
         password: password
@@ -2579,6 +2687,7 @@ endpoints:
       #     key: null
     path:
       default: null
+      healthcheck: /healthcheck
     scheme:
       default: 'http'
       service: 'http'
@@ -2663,14 +2772,6 @@ endpoints:
       dns:
         default: 53
         protocol: UDP
-  ingress:
-    namespace: null
-    name: ingress
-    hosts:
-      default: ingress
-    port:
-      ingress:
-        default: 80
 
 network_policy:
   neutron:
@@ -2679,8 +2780,6 @@ network_policy:
       - {}
     egress:
       - {}
-
-helm3_hook: true
 
 health_probe:
   logging:
@@ -2695,18 +2794,42 @@ jobs:
       failed: 1
 
 tls:
-  identity: false
   oslo_messaging: false
   oslo_db: false
 
+rabbitmq_topology:
+  # -- API group of the RabbitMQ topology custom resources this chart renders
+  ## when manifests.rabbitmq_topology is enabled. Either group works: the
+  ## resources are the same, only who reconciles them differs.
+  ##   rabbitmq.osh.openstack.org -- the rabbitmq chart's own topology
+  ##                                 controller
+  ##                                 (manifests.deployment_topology_controller)
+  ##   rabbitmq.com               -- the upstream messaging-topology-operator,
+  ##                                 which must then be deployed separately,
+  ##                                 along with a RabbitmqCluster named after
+  ##                                 endpoints.oslo_messaging.hosts.default for
+  ##                                 rabbitmqClusterReference to resolve to
+  api_group: rabbitmq.osh.openstack.org
+
+mariadb_db:
+  # -- API group of the MariaDB custom resources this chart renders when
+  ## manifests.mariadb_db is enabled. Either group works: the resources are
+  ## the same, only who reconciles them differs.
+  ##   mariadb.osh.openstack.org -- the mariadb chart's own db controller
+  ##                                (manifests.deployment_db_controller)
+  ##   k8s.mariadb.com           -- the upstream mariadb-operator, which must
+  ##                                then be deployed separately
+  ## With k8s.mariadb.com and tls.oslo_db enabled, use mariadb-operator 0.37.0
+  ## or newer. User.spec.require was added in that release, so older operators
+  ## drop it and create accounts without REQUIRE X509.
+  api_group: mariadb.osh.openstack.org
+
 manifests:
-  certificates: false
   cron_job_ovn_db_sync: false
   configmap_bin: true
   configmap_etc: true
   daemonset_dhcp_agent: true
   daemonset_l3_agent: true
-  daemonset_lb_agent: true
   daemonset_metadata_agent: true
   daemonset_ovs_agent: true
   daemonset_sriov_agent: true
@@ -2714,14 +2837,29 @@ manifests:
   daemonset_bagpipe_bgp: false
   daemonset_bgp_dragent: false
   daemonset_netns_cleanup_cron: true
+  daemonset_ovn_agent: false
   daemonset_ovn_metadata_agent: false
   daemonset_ovn_vpn_agent: false
-  deployment_ironic_agent: false
+  # NOTE: The ironic agent runs as a StatefulSet because it names its
+  # notification listener pool queue after its own hostname. Under a
+  # Deployment that is the pod name, so it changed on every rollout, and
+  # quorum queues cannot be declared `auto_delete`, which left the previous
+  # pool queue behind each time. The StatefulSet gives each pod a stable
+  # hostname (neutron-ironic-agent-0, neutron-ironic-agent-1, ...) that is
+  # reused across restarts, which also keeps the agent's hash ring membership
+  # stable. This also renders the headless service those DNS names are
+  # published through.
+  statefulset_ironic_agent: false
   deployment_server: true
   deployment_rpc_server: true
-  ingress_server: true
+  deployment_periodic_worker: true
+  deployment_ovn_maintenance_worker: true
   job_bootstrap: true
   job_db_init: true
+  # -- Render the MariaDB Database/User/Grant/Connection custom resources
+  ## reconciled by the mariadb chart's db controller, instead of running the
+  ## db-init job. Mutually exclusive with job_db_init.
+  mariadb_db: false
   job_db_sync: true
   job_db_drop: false
   job_image_repo_sync: true
@@ -2732,12 +2870,49 @@ manifests:
   pdb_server: true
   pod_rally_test: true
   network_policy: false
+  # -- Declare this chart's messaging vhost, account and permissions
+  ## as RabbitMQ custom resources reconciled by the rabbitmq chart's
+  ## topology controller, instead of running the rabbit_init job. The
+  ## two are mutually exclusive.
+  rabbitmq_topology: false
   secret_db: true
-  secret_ingress_tls: true
   secret_keystone: true
   secret_ks_etc: true
   secret_rabbitmq: true
   secret_registry: true
-  service_ingress_server: true
   service_server: true
+
+# -- Extra K8s manifests to deploy. Either a list or a map of manifests.
+## Note: Supports use of custom Helm templates
+## Note: Helm replaces (instead of merging) list values when several values
+## files are combined, so if you need to define extraObjects in more than one
+## overrides file, use the map form and make sure the keys are unique across
+## those files. With the list form only the last file takes effect.
+extraObjects: {}
+  # osh_secrets_store:
+  #   apiVersion: secrets-store.csi.x-k8s.io/v1
+  #   kind: SecretProviderClass
+  #   metadata:
+  #     name: osh-secrets-store
+  #   spec:
+  #     provider: aws
+  #     parameters:
+  #       objects: |
+  #         - objectName: "osh"
+  #           objectType: "secretsmanager"
+  #           jmesPath:
+  #               - path: "client_id"
+  #                 objectAlias: "client_id"
+  #               - path: "client_secret"
+  #                 objectAlias: "client_secret"
+  #     secretObjects:
+  #     - data:
+  #       - key: client_id
+  #         objectName: client_id
+  #       - key: client_secret
+  #         objectName: client_secret
+  #       secretName: osh-secrets-store
+  #       type: Opaque
+  #       labels:
+  #         app.kubernetes.io/part-of: osh
 ...

@@ -19,12 +19,10 @@ helm.sh/hook-weight: "-5"
 
 {{- if .Values.manifests.job_db_init }}
 {{- $dbInitJob := dict "envAll" . "serviceName" "neutron" -}}
-{{- if .Values.manifests.certificates -}}
-{{- $_ := set $dbInitJob "dbAdminTlsSecret" .Values.endpoints.oslo_db.auth.admin.secret.tls.internal -}}
+{{- if .Values.tls.oslo_db -}}
+{{- $_ := set $dbInitJob "dbAdminTlsSecret" .Values.secrets.tls.client.neutron -}}
 {{- end -}}
-{{- if .Values.helm3_hook }}
 {{- $_ := set $dbInitJob "jobAnnotations" (include "metadata.annotations.job.db_init" . | fromYaml) }}
-{{- end }}
 {{- if .Values.pod.tolerations.neutron.enabled -}}
 {{- $_ := set $dbInitJob "tolerationsEnabled" true -}}
 {{- end -}}

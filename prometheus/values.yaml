@@ -19,9 +19,9 @@
 images:
   tags:
     apache_proxy: docker.io/library/httpd:2.4
-    prometheus: docker.io/prom/prometheus:v2.25.0
-    helm_tests: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
+    prometheus: docker.io/prom/prometheus:v3.13.3
+    helm_tests: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_noble
     image_repo_sync: quay.io/airshipit/docker:27.5.0
   pull_policy: IfNotPresent
   local_registry:
@@ -248,20 +248,6 @@ monitoring:
 
 network:
   prometheus:
-    ingress:
-      public: true
-      classes:
-        namespace: "ingress-openstack"
-        cluster: "ingress-cluster"
-      annotations:
-        nginx.ingress.kubernetes.io/rewrite-target: /
-        nginx.ingress.kubernetes.io/affinity: cookie
-        nginx.ingress.kubernetes.io/session-cookie-name: kube-ingress-session-prometheus
-        nginx.ingress.kubernetes.io/session-cookie-hash: sha1
-        nginx.ingress.kubernetes.io/session-cookie-expires: "600"
-        nginx.ingress.kubernetes.io/session-cookie-max-age: "600"
-        haproxy.org/path-rewrite: /
-        haproxy.org/cookie-persistence: "kube-ingress-session-prometheus"
     node_port:
       enabled: false
       port: 30900
@@ -329,14 +315,11 @@ manifests:
   certificates: false
   configmap_bin: true
   configmap_etc: true
-  ingress: true
   helm_tests: true
   job_image_repo_sync: true
   network_policy: true
-  secret_ingress_tls: true
   secret_prometheus: true
   secret_registry: true
-  service_ingress: true
   service: true
   statefulset_prometheus: true
 
@@ -1138,4 +1121,38 @@ conf:
               regex: peer-mesh
               action: drop
     rules: []
+
+# -- Extra K8s manifests to deploy. Either a list or a map of manifests.
+## Note: Supports use of custom Helm templates
+## Note: Helm replaces (instead of merging) list values when several values
+## files are combined, so if you need to define extraObjects in more than one
+## overrides file, use the map form and make sure the keys are unique across
+## those files. With the list form only the last file takes effect.
+extraObjects: {}
+  # osh_secrets_store:
+  #   apiVersion: secrets-store.csi.x-k8s.io/v1
+  #   kind: SecretProviderClass
+  #   metadata:
+  #     name: osh-secrets-store
+  #   spec:
+  #     provider: aws
+  #     parameters:
+  #       objects: |
+  #         - objectName: "osh"
+  #           objectType: "secretsmanager"
+  #           jmesPath:
+  #               - path: "client_id"
+  #                 objectAlias: "client_id"
+  #               - path: "client_secret"
+  #                 objectAlias: "client_secret"
+  #     secretObjects:
+  #     - data:
+  #       - key: client_id
+  #         objectName: client_id
+  #       - key: client_secret
+  #         objectName: client_secret
+  #       secretName: osh-secrets-store
+  #       type: Opaque
+  #       labels:
+  #         app.kubernetes.io/part-of: osh
 ...

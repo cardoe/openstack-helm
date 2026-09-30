@@ -113,6 +113,7 @@ spec:
       hostPID: true
       hostIPC: true
       dnsPolicy: ClusterFirstWithHostNet
+      terminationGracePeriodSeconds: {{ $envAll.Values.pod.lifecycle.termination_grace_period.compute.timeout }}
       initContainers:
 {{ tuple $envAll "pod_dependency" $mounts_nova_compute_init | include "helm-toolkit.snippets.kubernetes_entrypoint_init_container" | indent 8 }}
         - name: nova-compute-init
@@ -262,19 +263,6 @@ spec:
               mountPath: /tmp/pod-shared
 {{ if $mounts_nova_compute.volumeMounts }}{{ toYaml $mounts_nova_compute.volumeMounts | indent 12 }}{{ end }}
         {{ end }}
-        {{- if ( has "tungstenfabric" .Values.network.backend ) }}
-        - name: tungstenfabric-compute-init
-          image: {{ .Values.images.tags.tf_compute_init }}
-          imagePullPolicy: {{ .Values.images.pull_policy }}
-{{ tuple $envAll $envAll.Values.pod.resources.compute | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
-{{ dict "envAll" $envAll "application" "nova" "container" "tungstenfabric_compute_init" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
-          volumeMounts:
-            - name: tf-plugin-shared
-              mountPath: /opt/plugin
-            - name: tf-plugin-bin
-              mountPath: /opt/plugin/bin
-{{ if $mounts_nova_compute.volumeMounts }}{{ toYaml $mounts_nova_compute.volumeMounts | indent 12 }}{{ end }}
-        {{- end }}
         {{- if .Values.network.ssh.enabled }}
         - name: nova-compute-ssh-init
 {{ tuple $envAll "nova_compute_ssh" | include "helm-toolkit.snippets.image" | indent 10 }}
@@ -323,9 +311,9 @@ spec:
               value: "{{ .Values.pod.probes.rpc_timeout }}"
             - name: RPC_PROBE_RETRIES
               value: "{{ .Values.pod.probes.rpc_retries }}"
-{{- if or .Values.manifests.certificates .Values.tls.identity }}
+{{- if .Values.secrets.tls.ca }}
             - name: REQUESTS_CA_BUNDLE
-              value: "/etc/nova/certs/ca.crt"
+              value: "/etc/ssl/certs/openstack-helm.crt"
 {{- end }}
 {{ dict "envAll" $envAll "component" "compute" "container" "default" "type" "liveness" "probeTemplate" (include "novaComputeLivenessProbeTemplate" $envAll | fromYaml) | include "helm-toolkit.snippets.kubernetes_probe" | indent 10 }}
 {{ dict "envAll" $envAll "component" "compute" "container" "default" "type" "readiness" "probeTemplate" (include "novaComputeReadinessProbeTemplate" $envAll | fromYaml) | include "helm-toolkit.snippets.kubernetes_probe" | indent 10 }}
@@ -338,6 +326,8 @@ spec:
               mountPath: /dev/pts
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: {{ .Values.conf.nova.oslo_concurrency.lock_path }}
             - name: nova-bin
               mountPath: /tmp/nova-compute.sh
               subPath: nova-compute.sh
@@ -391,9 +381,7 @@ spec:
             {{- if .Values.conf.ceph.enabled }}
             - name: etcceph
               mountPath: /etc/ceph
-              {{- if or ( gt .Capabilities.KubeVersion.Major "1" ) ( ge .Capabilities.KubeVersion.Minor "10" ) }}
               mountPropagation: Bidirectional
-              {{- end }}
             {{- if and ( empty .Values.conf.ceph.cinder.keyring ) ( empty .Values.conf.ceph.admin_keyring )}}
             - name: ceph-keyring
               mountPath: /tmp/client-keyring
@@ -406,14 +394,10 @@ spec:
               readOnly: true
             - name: varlibnova
               mountPath: /var/lib/nova
-              {{- if or ( gt .Capabilities.KubeVersion.Major "1" ) ( ge .Capabilities.KubeVersion.Minor "10" ) }}
               mountPropagation: Bidirectional
-              {{- end }}
             - name: varliblibvirt
               mountPath: /var/lib/libvirt
-              {{- if or ( gt .Capabilities.KubeVersion.Major "1" ) ( ge .Capabilities.KubeVersion.Minor "10" ) }}
               mountPropagation: Bidirectional
-              {{- end }}
             - name: run
               mountPath: /run
             - name: cgroup
@@ -432,14 +416,10 @@ spec:
               mountPath: /usr/local/sbin
             - name: etciscsi
               mountPath: /etc/iscsi
-              {{- if or ( gt .Capabilities.KubeVersion.Major "1" ) ( ge .Capabilities.KubeVersion.Minor "10" ) }}
               mountPropagation: HostToContainer
-              {{- end }}
             - name: dev
               mountPath: /dev
-              {{- if or ( gt .Capabilities.KubeVersion.Major "1" ) ( ge .Capabilities.KubeVersion.Minor "10" ) }}
               mountPropagation: HostToContainer
-              {{- end }}
             - name: nova-bin
               mountPath: /usr/local/sbin/iscsiadm
               subPath: iscsiadm
@@ -453,37 +433,13 @@ spec:
               subPath: multipathd
             - name: etcmultipath
               mountPath: /etc/multipath
-              {{- if or ( gt .Capabilities.KubeVersion.Major "1" ) ( ge .Capabilities.KubeVersion.Minor "10" ) }}
               mountPropagation: Bidirectional
-              {{- end }}
             - name: sysblock
               mountPath: /sys/block
-              {{- if or ( gt .Capabilities.KubeVersion.Major "1" ) ( ge .Capabilities.KubeVersion.Minor "10" ) }}
               mountPropagation: HostToContainer
-              {{- end }}
             {{- end }}
-            {{- if ( has "tungstenfabric" .Values.network.backend ) }}
-            - name: tf-plugin-shared
-              mountPath: /opt/plugin
-              readOnly: true
-            - name: tf-plugin-bin
-              mountPath: /usr/sbin
-              readOnly: true
-            - name: nova-bin
-              mountPath: /usr/local/lib/python2.7/site-packages/tf-plugin.pth
-              subPath: tf-plugin.pth
-              readOnly: true
-            - name: nova-bin
-              mountPath: /var/lib/openstack/lib/python2.7/site-packages/tf-plugin.pth
-              subPath: tf-plugin.pth
-              readOnly: true
-            - name: nova-bin
-              mountPath: /var/lib/openstack/lib/python3.6/site-packages/tf-plugin.pth
-              subPath: tf-plugin.pth
-              readOnly: true
-            {{- end }}
-{{- dict "enabled" (or .Values.manifests.certificates .Values.tls.identity) "name" .Values.secrets.tls.compute.osapi.internal "path" "/etc/nova/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
-{{- dict "enabled" .Values.manifests.certificates "name" .Values.endpoints.oslo_messaging.auth.admin.secret.tls.internal "path" "/etc/rabbitmq/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
+{{- dict "enabled" (not (empty .Values.secrets.tls.ca)) "name" .Values.secrets.tls.ca | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
+{{- dict "enabled" .Values.tls.oslo_messaging "name" "client-certs" "path" "/etc/rabbitmq/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
 {{ if $mounts_nova_compute.volumeMounts }}{{ toYaml $mounts_nova_compute.volumeMounts | indent 12 }}{{ end }}
         {{- if .Values.network.ssh.enabled }}
         - name: nova-compute-ssh
@@ -495,9 +451,9 @@ spec:
               value: {{ include "helm-toolkit.utils.joinListWithComma" .Values.network.ssh.key_types | quote }}
             - name: SSH_PORT
               value: {{ .Values.network.ssh.port | quote }}
-{{- if or .Values.manifests.certificates .Values.tls.identity }}
+{{- if .Values.secrets.tls.ca }}
             - name: REQUESTS_CA_BUNDLE
-              value: "/etc/nova/certs/ca.crt"
+              value: "/etc/ssl/certs/openstack-helm.crt"
 {{- end }}
           ports:
             - containerPort: {{ .Values.network.ssh.port }}
@@ -511,11 +467,13 @@ spec:
               mountPath: /tmp/ssh-start.sh
               subPath: ssh-start.sh
               readOnly: true
-{{- dict "enabled" (or .Values.manifests.certificates .Values.tls.identity) "name" .Values.secrets.tls.compute.osapi.internal "path" "/etc/nova/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
+{{- dict "enabled" (not (empty .Values.secrets.tls.ca)) "name" .Values.secrets.tls.ca | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
 {{ if $mounts_nova_compute.volumeMounts }}{{ toYaml $mounts_nova_compute.volumeMounts | indent 12 }}{{ end }}
         {{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: nova-bin
           configMap:
@@ -525,11 +483,13 @@ spec:
           secret:
             secretName: {{ $configMapName }}
             defaultMode: 0444
-{{- if $etcSources }}
         - name: nova-etc-snippets
+{{- if $etcSources }}
           projected:
             sources:
 {{ toYaml $etcSources | indent 14 }}
+{{- else }}
+          emptyDir: {}
 {{ end }}
         {{- if .Values.network.ssh.enabled }}
         - name: nova-ssh
@@ -597,14 +557,8 @@ spec:
             path: /sys/block
 
         {{- end }}
-        {{- if ( has "tungstenfabric" .Values.network.backend ) }}
-        - name: tf-plugin-shared
-          emptyDir: {}
-        - name: tf-plugin-bin
-          emptyDir: {}
-        {{- end }}
-{{- dict "enabled" (or .Values.manifests.certificates .Values.tls.identity) "name" .Values.secrets.tls.compute.osapi.internal | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
-{{- dict "enabled" .Values.manifests.certificates "name" .Values.endpoints.oslo_messaging.auth.admin.secret.tls.internal | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
+{{- dict "enabled" (not (empty .Values.secrets.tls.ca)) "name" .Values.secrets.tls.ca | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
+{{- dict "enabled" (or .Values.tls.oslo_db .Values.tls.oslo_messaging) "name" "client-certs" "secretName" .Values.secrets.tls.client.nova | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
 {{ if $mounts_nova_compute.volumes }}{{ toYaml $mounts_nova_compute.volumes | indent 8 }}{{ end }}
 {{- end }}
 {{- end }}

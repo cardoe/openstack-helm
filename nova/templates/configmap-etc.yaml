@@ -44,30 +44,21 @@ limitations under the License.
 
 {{- end -}}
 
-{{- if empty .Values.conf.nova.database.connection -}}
-{{- $connection := tuple "oslo_db" "internal" "nova" "mysql" . | include "helm-toolkit.endpoints.authenticated_endpoint_uri_lookup" -}}
-{{- if .Values.manifests.certificates -}}
+{{- if and (not (kindIs "invalid" .Values.conf.nova.database.connection)) (empty .Values.conf.nova.database.connection) -}}
+{{- $connection := tuple "oslo_db_cell1" "internal" "nova" "mysql" . | include "helm-toolkit.endpoints.authenticated_endpoint_uri_lookup" -}}
+{{- if .Values.tls.oslo_db -}}
 {{- $_ := (printf "%s?charset=utf8&ssl_ca=/etc/mysql/certs/ca.crt&ssl_key=/etc/mysql/certs/tls.key&ssl_cert=/etc/mysql/certs/tls.crt&ssl_verify_cert" $connection ) | set .Values.conf.nova.database "connection" -}}
 {{- else -}}
 {{- $_ := set .Values.conf.nova.database "connection" $connection -}}
 {{- end -}}
 {{- end -}}
 
-{{- if empty .Values.conf.nova.api_database.connection -}}
-{{- $connection := tuple "oslo_db_api" "internal" "nova" "mysql" . | include "helm-toolkit.endpoints.authenticated_endpoint_uri_lookup" -}}
-{{- if .Values.manifests.certificates -}}
+{{- if and (not (kindIs "invalid" .Values.conf.nova.api_database.connection)) (empty .Values.conf.nova.api_database.connection) -}}
+{{- $connection := tuple "oslo_db" "internal" "nova" "mysql" . | include "helm-toolkit.endpoints.authenticated_endpoint_uri_lookup" -}}
+{{- if .Values.tls.oslo_db -}}
 {{- $_ := (printf "%s?charset=utf8&ssl_ca=/etc/mysql/certs/ca.crt&ssl_key=/etc/mysql/certs/tls.key&ssl_cert=/etc/mysql/certs/tls.crt&ssl_verify_cert" $connection ) | set .Values.conf.nova.api_database "connection" -}}
 {{- else -}}
 {{- $_ := set .Values.conf.nova.api_database "connection" $connection -}}
-{{- end -}}
-{{- end -}}
-
-{{- if empty .Values.conf.nova.cell0_database.connection -}}
-{{- $connection := tuple "oslo_db_cell0" "internal" "nova" "mysql" . | include "helm-toolkit.endpoints.authenticated_endpoint_uri_lookup" -}}
-{{- if .Values.manifests.certificates -}}
-{{- $_ := (printf "%s?charset=utf8&ssl_ca=/etc/mysql/certs/ca.crt&ssl_key=/etc/mysql/certs/tls.key&ssl_cert=/etc/mysql/certs/tls.crt&ssl_verify_cert" $connection ) | set .Values.conf.nova.cell0_database "connection" -}}
-{{- else -}}
-{{- $_ := set .Values.conf.nova.cell0_database "connection" $connection -}}
 {{- end -}}
 {{- end -}}
 
@@ -163,14 +154,6 @@ limitations under the License.
 {{- $_ := set .Values.conf.nova.ironic "auth_version" .Values.endpoints.identity.auth.ironic.auth_version -}}
 {{- end -}}
 
-{{- if empty .Values.conf.nova.ironic.memcache_secret_key -}}
-{{- $_ := (default (randAlphaNum 64) .Values.endpoints.oslo_cache.auth.memcache_secret_key) | set .Values.conf.nova.ironic "memcache_secret_key" -}}
-{{- end -}}
-
-{{- if empty .Values.conf.nova.ironic.memcache_servers -}}
-{{- $_ := tuple "oslo_cache" "internal" "memcache" . | include "helm-toolkit.endpoints.host_and_port_endpoint_uri_lookup" | set .Values.conf.nova.ironic "memcache_servers" -}}
-{{- end -}}
-
 {{- if .Values.conf.nova.cinder.auth_type -}}
 {{- if eq .Values.conf.nova.cinder.auth_type "password" -}}
 
@@ -244,11 +227,6 @@ data:
   nova-ironic.conf: {{ include "helm-toolkit.utils.to_oslo_conf" .Values.conf.nova_ironic | b64enc }}
   nova-api-uwsgi.ini: {{ include "helm-toolkit.utils.to_oslo_conf" .Values.conf.nova_api_uwsgi | b64enc }}
   nova-metadata-uwsgi.ini: {{ include "helm-toolkit.utils.to_oslo_conf" .Values.conf.nova_metadata_uwsgi | b64enc }}
-{{- if .Values.manifests.certificates }}
-{{- include "helm-toolkit.snippets.values_template_renderer" (dict "envAll" $envAll "template" .Values.conf.mpm_event "key" "mpm_event.conf" "format" "Secret" ) | indent 2 }}
-{{- include "helm-toolkit.snippets.values_template_renderer" (dict "envAll" $envAll "template" .Values.conf.wsgi_nova_api "key" "wsgi-api.conf" "format" "Secret" ) | indent 2 }}
-{{- include "helm-toolkit.snippets.values_template_renderer" (dict "envAll" $envAll "template" .Values.conf.wsgi_nova_metadata "key" "wsgi-metadata.conf" "format" "Secret" ) | indent 2 }}
-{{- end }}
 {{- if .Values.conf.security }}
 {{- include "helm-toolkit.snippets.values_template_renderer" (dict "envAll" $envAll "template" .Values.conf.security "key" "security.conf" "format" "Secret" ) | indent 2 }}
 {{- end }}

@@ -46,22 +46,22 @@ labels:
 
 images:
   tags:
-    bootstrap: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    db_init: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    db_drop: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    rabbit_init: docker.io/rabbitmq:3.13-management
-    ks_user: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_service: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_endpoints: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
-    designate_db_sync: quay.io/airshipit/designate:2025.1-ubuntu_noble
-    designate_api: quay.io/airshipit/designate:2025.1-ubuntu_noble
-    designate_central: quay.io/airshipit/designate:2025.1-ubuntu_noble
-    designate_mdns: quay.io/airshipit/designate:2025.1-ubuntu_noble
-    designate_worker: quay.io/airshipit/designate:2025.1-ubuntu_noble
-    designate_producer: quay.io/airshipit/designate:2025.1-ubuntu_noble
-    designate_sink: quay.io/airshipit/designate:2025.1-ubuntu_noble
-    designate_service_cleaner: quay.io/airshipit/designate:2025.1-ubuntu_noble
+    bootstrap: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    db_init: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    db_drop: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    rabbit_init: docker.io/rabbitmq:4.3.5-management
+    ks_user: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_service: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_endpoints: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_noble
+    designate_db_sync: quay.io/airshipit/designate:2026.1-ubuntu_noble
+    designate_api: quay.io/airshipit/designate:2026.1-ubuntu_noble
+    designate_central: quay.io/airshipit/designate:2026.1-ubuntu_noble
+    designate_mdns: quay.io/airshipit/designate:2026.1-ubuntu_noble
+    designate_worker: quay.io/airshipit/designate:2026.1-ubuntu_noble
+    designate_producer: quay.io/airshipit/designate:2026.1-ubuntu_noble
+    designate_sink: quay.io/airshipit/designate:2026.1-ubuntu_noble
+    designate_service_cleaner: quay.io/airshipit/designate:2026.1-ubuntu_noble
   pull_policy: "IfNotPresent"
   local_registry:
     active: false
@@ -116,6 +116,23 @@ pod:
       designate_db_sync:
         volumeMounts:
         volumes:
+    designate_bootstrap:
+      init_container: null
+      designate_bootstrap:
+        volumeMounts:
+        volumes:
+  # -- This allows users to add Kubernetes Projected Volumes to be mounted at /etc/designate/designate.conf.d/
+  ## This is a list of projected volume source objects for each deployment/statefulset/daemonset/cronjob
+  ## https://kubernetes.io/docs/concepts/storage/projected-volumes/
+  etcSources:
+    designate_api: []
+    designate_central: []
+    designate_mdns: []
+    designate_worker: []
+    designate_producer: []
+    designate_sink: []
+    designate_service_cleaner: []
+    designate_db_sync: []
   replicas:
     api: 1
     central: 1
@@ -226,14 +243,6 @@ pod:
 
 network:
   api:
-    ingress:
-      public: true
-      classes:
-        namespace: "ingress-openstack"
-        cluster: "ingress-cluster"
-      annotations:
-        nginx.ingress.kubernetes.io/rewrite-target: /
-        haproxy.org/path-rewrite: /
     external_policy_local: false
     node_port:
       enabled: false
@@ -248,6 +257,7 @@ network:
 
 bootstrap:
   enabled: false
+  ks_user: admin
   script: |
     openstack token issue
 
@@ -274,6 +284,12 @@ dependencies:
         jobs:
           - designate-rabbit-init
   static:
+    bootstrap:
+      services:
+        - service: identity
+          endpoint: internal
+        - service: dns
+          endpoint: internal
     db_init:
       services:
         - service: oslo_db
@@ -476,10 +492,30 @@ conf:
       enable_proxy_headers_parsing: true
     oslo_policy:
       policy_file: /etc/designate/policy.yaml
+    oslo_concurrency:
+      lock_path: /var/lock
     database:
       max_retries: -1
+      # -- Database connection URI. When empty the URI is auto-generated
+      ## from endpoints.oslo_db. Set to null to disable auto-generation,
+      ## e.g. when using an operator such as mariadb-operator that supplies
+      ## the connection string via a mounted configuration snippet.
+      connection: ""
     storage:sqlalchemy:
       max_retries: -1
+      # -- Storage backend connection URI. When empty the URI is auto-generated
+      ## from endpoints.oslo_db. Set to null to disable auto-generation,
+      ## e.g. when using an operator such as mariadb-operator that supplies
+      ## the connection string via a mounted configuration snippet.
+      connection: ""
+    oslo_messaging_rabbit:
+      # -- Durable and quorum queues, which RabbitMQ 4.x requires: it denies
+      ## transient non-exclusive queues, and oslo.messaging declares its RPC,
+      ## notification, reply and fanout queues that way otherwise. Valid on 3.x.
+      amqp_durable_queues: true
+      rabbit_quorum_queue: true
+      rabbit_transient_quorum_queue: true
+      use_queue_manager: true
     keystone_authtoken:
       auth_version: v3
       auth_type: password
@@ -556,11 +592,12 @@ conf:
       lazy-apps: true
       log-x-forwarded-for: true
       master: true
+      need-app: true
       procname-prefix-spaced: "designate-api:"
       route-user-agent: '^kube-probe.* donotlog:'
       thunder-lock: true
       worker-reload-mercy: 80
-      wsgi-file: /var/lib/openstack/bin/designate-api-wsgi
+      module: "designate.wsgi.api:application"
       stats: 0.0.0.0:1717
       stats-http: true
 
@@ -572,7 +609,6 @@ secrets:
     test: designate-keystone-test
   oslo_db:
     admin: designate-db-admin
-    designate: designate-db-user
   oslo_messaging:
     admin: designate-rabbitmq-admin
     designate: designate-rabbitmq-user
@@ -582,6 +618,11 @@ secrets:
         public: designate-tls-public
   oci_image_registry:
     designate: designate-oci-image-registry
+
+identity:
+  openrc:
+    exclude_vars: []
+    extra_vars: []
 
 endpoints:
   cluster_domain_suffix: cluster.local
@@ -765,7 +806,6 @@ manifests:
   deployment_producer: true
   deployment_mdns: true
   deployment_sink: false
-  ingress_api: true
   job_bootstrap: true
   job_db_init: true
   job_db_sync: true
@@ -780,11 +820,43 @@ manifests:
   pdb_mdns: true
   pdb_sink: false
   secret_db: true
-  secret_ingress_tls: true
   secret_keystone: true
   secret_rabbitmq: true
   secret_registry: true
   service_api: true
   service_mdns: true
-  service_ingress_api: true
+
+# -- Extra K8s manifests to deploy. Either a list or a map of manifests.
+## Note: Supports use of custom Helm templates
+## Note: Helm replaces (instead of merging) list values when several values
+## files are combined, so if you need to define extraObjects in more than one
+## overrides file, use the map form and make sure the keys are unique across
+## those files. With the list form only the last file takes effect.
+extraObjects: {}
+  # osh_secrets_store:
+  #   apiVersion: secrets-store.csi.x-k8s.io/v1
+  #   kind: SecretProviderClass
+  #   metadata:
+  #     name: osh-secrets-store
+  #   spec:
+  #     provider: aws
+  #     parameters:
+  #       objects: |
+  #         - objectName: "osh"
+  #           objectType: "secretsmanager"
+  #           jmesPath:
+  #               - path: "client_id"
+  #                 objectAlias: "client_id"
+  #               - path: "client_secret"
+  #                 objectAlias: "client_secret"
+  #     secretObjects:
+  #     - data:
+  #       - key: client_id
+  #         objectName: client_id
+  #       - key: client_secret
+  #         objectName: client_secret
+  #       secretName: osh-secrets-store
+  #       type: Opaque
+  #       labels:
+  #         app.kubernetes.io/part-of: osh
 ...

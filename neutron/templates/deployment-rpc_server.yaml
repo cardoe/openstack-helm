@@ -15,7 +15,7 @@ limitations under the License.
 {{- if .Values.manifests.deployment_rpc_server }}
 {{- $envAll := . }}
 
-{{- $dependencyOpts := dict "envAll" $envAll "dependencyMixinParam" $envAll.Values.network.backend "dependencyKey" "server" -}}
+{{- $dependencyOpts := dict "envAll" $envAll "dependencyMixinParam" $envAll.Values.network.backend "dependencyKey" "rpc_server" -}}
 {{- $_ := include "helm-toolkit.utils.dependency_resolver" $dependencyOpts | toString | fromYaml }}
 
 {{- $mounts_neutron_rpc_server := .Values.pod.mounts.neutron_rpc_server.neutron_rpc_server }}
@@ -50,6 +50,7 @@ spec:
 {{ tuple $envAll | include "helm-toolkit.snippets.release_uuid" | indent 8 }}
         configmap-bin-hash: {{ tuple "configmap-bin.yaml" . | include "helm-toolkit.utils.hash" }}
         configmap-etc-hash: {{ tuple "configmap-etc.yaml" . | include "helm-toolkit.utils.hash" }}
+{{ tuple "neutron_rpc_server" . | include "helm-toolkit.snippets.custom_pod_annotations" | indent 8 }}
 {{ dict "envAll" $envAll "podName" "neutron-rpc-server" "containerNames" (list "neutron-rpc-server" "init") | include "helm-toolkit.snippets.kubernetes_mandatory_access_control_annotation" | indent 8 }}
     spec:
 {{ dict "envAll" $envAll "application" "neutron_rpc_server" | include "helm-toolkit.snippets.kubernetes_pod_security_context" | indent 6 }}
@@ -67,31 +68,7 @@ spec:
       initContainers:
 {{ tuple $envAll "pod_dependency" $mounts_neutron_rpc_server_init | include "helm-toolkit.snippets.kubernetes_entrypoint_init_container" | indent 8 }}
         {{- if ( has "ovn" .Values.network.backend ) }}
-        - name: ovn-neutron-init
-{{ tuple $envAll "neutron_rpc_server" | include "helm-toolkit.snippets.image" | indent 10 }}
-          command:
-            - /tmp/neutron-ovn-init.sh
-          volumeMounts:
-            - name: pod-shared
-              mountPath: /tmp/pod-shared
-            - name: neutron-bin
-              mountPath: /tmp/neutron-ovn-init.sh
-              subPath: neutron-ovn-init.sh
-              readOnly: true
-        {{- end }}
-        {{- if ( has "tungstenfabric" .Values.network.backend ) }}
-        - name: tungstenfabric-neutron-init
-          image: {{ .Values.images.tags.tf_neutron_init }}
-          imagePullPolicy: {{ .Values.images.pull_policy }}
-{{ tuple $envAll $envAll.Values.pod.resources.rpc_server | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
-          securityContext:
-            runAsUser: {{ .Values.pod.security_context.neutron_rpc_server.pod.runAsUser }}
-          env:
-            - name: OPENSTACK_VERSION
-              value: "{{ .Values.conf.openstack_version }}"
-          volumeMounts:
-            - name: neutron-plugin-shared
-              mountPath: /opt/plugin
+{{ dict "envAll" $envAll "application" "neutron_rpc_server" "image" "neutron_rpc_server" "resources" $envAll.Values.pod.resources.rpc_server | include "neutron.snippets.ovn_neutron_init_container" | indent 8 }}
         {{- end }}
       containers:
         - name: neutron-rpc-server
@@ -101,10 +78,10 @@ spec:
           command:
             - /tmp/neutron-rpc-server.sh
             - start
-{{- if or .Values.manifests.certificates .Values.tls.identity }}
+{{- if .Values.secrets.tls.ca }}
           env:
             - name: REQUESTS_CA_BUNDLE
-              value: "/etc/neutron/certs/ca.crt"
+              value: "/etc/ssl/certs/openstack-helm.crt"
 {{- end }}
           lifecycle:
             preStop:
@@ -118,6 +95,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: {{ .Values.conf.neutron.oslo_concurrency.lock_path }}
             - name: pod-shared
               mountPath: /tmp/pod-shared
             - name: pod-var-neutron
@@ -147,35 +126,10 @@ spec:
               mountPath: /etc/neutron/api_audit_map.conf
               subPath: api_audit_map.conf
               readOnly: true
-            {{- if( has "tungstenfabric" .Values.network.backend ) }}
-            - name: neutron-etc
-              mountPath: /etc/neutron/plugins/tungstenfabric/tf_plugin.ini
-              subPath: tf_plugin.ini
-              readOnly: true
-            - name: neutron-etc
-              mountPath: /etc/contrail/vnc_api_lib.ini
-              subPath: vnc_api_lib.ini
-              readOnly: true
-            - name: neutron-plugin-shared
-              mountPath: /opt/plugin
-            - name: neutron-bin
-              mountPath: /usr/local/lib/python2.7/site-packages/tf-plugin.pth
-              subPath: tf-plugin.pth
-              readOnly: true
-            - name: neutron-bin
-              mountPath: /var/lib/openstack/lib/python2.7/site-packages/tf-plugin.pth
-              subPath: tf-plugin.pth
-              readOnly: true
-            - name: neutron-bin
-              mountPath: /var/lib/openstack/lib/python3.6/site-packages/tf-plugin.pth
-              subPath: tf-plugin.pth
-              readOnly: true
-            {{- else }}
             - name: neutron-etc
               mountPath: /etc/neutron/plugins/ml2/ml2_conf.ini
               subPath: ml2_conf.ini
               readOnly: true
-            {{- end }}
             {{ if ( has "sriov" .Values.network.backend ) }}
             - name: neutron-etc
               mountPath: /etc/neutron/plugins/ml2/sriov_agent.ini
@@ -202,19 +156,17 @@ spec:
               mountPath: /etc/neutron/policy.yaml
               subPath: policy.yaml
               readOnly: true
-{{- dict "enabled" .Values.manifests.certificates "name" .Values.endpoints.oslo_db.auth.admin.secret.tls.internal "path" "/etc/mysql/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
-{{- dict "enabled" (or .Values.manifests.certificates .Values.tls.identity) "name" .Values.secrets.tls.network.server.internal "path" "/etc/neutron/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
-{{- dict "enabled" $envAll.Values.manifests.certificates "name" $envAll.Values.endpoints.oslo_messaging.auth.admin.secret.tls.internal "path" "/etc/rabbitmq/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
+{{- dict "enabled" .Values.tls.oslo_db "name" "client-certs" "path" "/etc/mysql/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
+{{- dict "enabled" (not (empty .Values.secrets.tls.ca)) "name" .Values.secrets.tls.ca | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
+{{- dict "enabled" $envAll.Values.tls.oslo_messaging "name" "client-certs" "path" "/etc/rabbitmq/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
 {{ if $mounts_neutron_rpc_server.volumeMounts }}{{ toYaml $mounts_neutron_rpc_server.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
           emptyDir: {}
+        - name: oslo-lock-path
+          emptyDir: {}
         - name: pod-shared
           emptyDir: {}
-        {{- if .Values.manifests.certificates }}
-        - name: wsgi-neutron
-          emptyDir: {}
-        {{- end }}
         - name: pod-var-neutron
           emptyDir: {}
         - name: neutron-bin
@@ -225,18 +177,15 @@ spec:
           secret:
             secretName: neutron-etc
             defaultMode: 0444
-{{- if $etcSources }}
         - name: neutron-etc-snippets
+{{- if $etcSources }}
           projected:
             sources:
 {{ toYaml $etcSources | indent 14 }}
-{{ end }}
-        {{- if ( has "tungstenfabric" .Values.network.backend ) }}
-        - name: neutron-plugin-shared
+{{- else }}
           emptyDir: {}
-        {{- end }}
-{{- dict "enabled" .Values.manifests.certificates "name" .Values.endpoints.oslo_db.auth.admin.secret.tls.internal | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
-{{- dict "enabled" (or .Values.manifests.certificates .Values.tls.identity) "name" .Values.secrets.tls.network.server.internal | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
-{{- dict "enabled" $envAll.Values.manifests.certificates "name" $envAll.Values.endpoints.oslo_messaging.auth.admin.secret.tls.internal | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
+{{ end }}
+{{- dict "enabled" (or .Values.tls.oslo_db .Values.tls.oslo_messaging) "name" "client-certs" "secretName" .Values.secrets.tls.client.neutron | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
+{{- dict "enabled" (not (empty .Values.secrets.tls.ca)) "name" .Values.secrets.tls.ca | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
 {{ if $mounts_neutron_rpc_server.volumes }}{{ toYaml $mounts_neutron_rpc_server.volumes | indent 8 }}{{ end }}
 {{- end }}

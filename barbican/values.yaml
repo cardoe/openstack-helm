@@ -29,23 +29,19 @@ labels:
 
 release_group: null
 
-# NOTE(philsphicas): the pre-install hook breaks upgrade for helm2
-# Set to false to upgrade using helm2
-helm3_hook: true
-
 images:
   tags:
-    bootstrap: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
-    scripted_test: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    db_init: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    barbican_db_sync: quay.io/airshipit/barbican:2025.1-ubuntu_noble
-    db_drop: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_user: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_service: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_endpoints: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    barbican_api: quay.io/airshipit/barbican:2025.1-ubuntu_noble
-    rabbit_init: docker.io/rabbitmq:3.13-management
+    bootstrap: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_noble
+    scripted_test: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    db_init: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    barbican_db_sync: quay.io/airshipit/barbican:2026.1-ubuntu_noble
+    db_drop: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_user: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_service: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_endpoints: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    barbican_api: quay.io/airshipit/barbican:2026.1-ubuntu_noble
+    rabbit_init: docker.io/rabbitmq:4.3.5-management
     image_repo_sync: docker.io/docker:17.07.0
   pull_policy: "IfNotPresent"
   local_registry:
@@ -108,6 +104,12 @@ pod:
       barbican_db_sync:
         volumeMounts:
         volumes:
+  # -- This allows users to add Kubernetes Projected Volumes to be mounted at /etc/barbican/barbican.conf.d/
+  ## This is a list of projected volume source objects for each deployment/statefulset/daemonset/cronjob
+  ## https://kubernetes.io/docs/concepts/storage/projected-volumes/
+  etcSources:
+    barbican_api: []
+    barbican_db_sync: []
   replicas:
     api: 1
   lifecycle:
@@ -131,6 +133,9 @@ pod:
             timeoutSeconds: 5
         liveness:
           enabled: true
+          # uwsgi stats socket (conf.barbican_api_uwsgi.uwsgi.stats); served
+          # by the master, so it answers even when every worker is busy.
+          port: 1717
           params:
             initialDelaySeconds: 5
             periodSeconds: 10
@@ -218,14 +223,6 @@ pod:
 
 network:
   api:
-    ingress:
-      public: true
-      classes:
-        namespace: "ingress-openstack"
-        cluster: "ingress-cluster"
-      annotations:
-        nginx.ingress.kubernetes.io/rewrite-target: /
-        haproxy.org/path-rewrite: /
     external_policy_local: false
     node_port:
       enabled: false
@@ -387,11 +384,12 @@ conf:
       lazy-apps: true
       log-x-forwarded-for: true
       master: true
+      need-app: true
       procname-prefix-spaced: "barbiacan-api:"
       route-user-agent: '^kube-probe.* donotlog:'
       thunder-lock: true
       worker-reload-mercy: 80
-      wsgi-file: /var/lib/openstack/bin/barbican-wsgi-api
+      module: barbican.wsgi.api:application
       processes: 1
       stats: 0.0.0.0:1717
       stats-http: true
@@ -399,6 +397,14 @@ conf:
     DEFAULT:
       transport_url: null
       log_config_append: /etc/barbican/logging.conf
+    oslo_messaging_rabbit:
+      # -- Durable and quorum queues, which RabbitMQ 4.x requires: it denies
+      ## transient non-exclusive queues, and oslo.messaging declares its RPC,
+      ## notification, reply and fanout queues that way otherwise. Valid on 3.x.
+      amqp_durable_queues: true
+      rabbit_quorum_queue: true
+      rabbit_transient_quorum_queue: true
+      use_queue_manager: true
     keystone_authtoken:
       auth_type: password
       auth_version: v3
@@ -407,12 +413,19 @@ conf:
       service_type: key-manager
     database:
       max_retries: -1
+      # -- Database connection URI. When empty the URI is auto-generated
+      ## from endpoints.oslo_db. Set to null to disable auto-generation,
+      ## e.g. when using an operator such as mariadb-operator that supplies
+      ## the connection string via a mounted configuration snippet.
+      connection: ""
     barbican_api:
       # NOTE(portdirect): the bind port should not be defined, and is manipulated
       # via the endpoints section.
       bind_port: null
     oslo_policy:
       policy_file: /etc/barbican/policy.yaml
+    oslo_concurrency:
+      lock_path: /var/lock
     # When using the simple_crypto_plugin, a kek must be provided as:
     #   .conf.barbican.simple_crypto_plugin.kek
     # If no kek is provided, barbican will use a well-known default.
@@ -526,17 +539,25 @@ secrets:
     barbican: barbican-keystone-user
   oslo_db:
     admin: barbican-db-admin
-    barbican: barbican-db-user
   oslo_messaging:
     admin: barbican-rabbitmq-admin
     barbican: barbican-rabbitmq-user
   tls:
+    # Client certificate this chart presents for all mTLS backend connections
+    # (MariaDB and RabbitMQ). Separate from the MariaDB and RabbitMQ server certs.
+    client:
+      barbican: barbican-client
     key_manager:
       api:
         public: barbican-tls-public
         internal: barbican-tls-internal
   oci_image_registry:
     barbican: barbican-oci-image-registry
+
+identity:
+  openrc:
+    exclude_vars: []
+    extra_vars: []
 
 endpoints:
   cluster_domain_suffix: cluster.local
@@ -626,9 +647,6 @@ endpoints:
       admin:
         username: root
         password: password
-        secret:
-          tls:
-            internal: mariadb-tls-direct
       barbican:
         username: barbican
         password: password
@@ -646,9 +664,6 @@ endpoints:
       admin:
         username: rabbitmq
         password: password
-        secret:
-          tls:
-            internal: rabbitmq-tls-direct
       barbican:
         username: barbican
         password: password
@@ -712,26 +727,31 @@ endpoints:
       dns:
         default: 53
         protocol: UDP
-  ingress:
-    namespace: null
-    name: ingress
-    hosts:
-      default: ingress
-    port:
-      ingress:
-        default: 80
 
 tls:
   identity: false
   oslo_messaging: false
   oslo_db: false
 
+rabbitmq_topology:
+  # -- API group of the RabbitMQ topology custom resources this chart renders
+  ## when manifests.rabbitmq_topology is enabled. Either group works: the
+  ## resources are the same, only who reconciles them differs.
+  ##   rabbitmq.osh.openstack.org -- the rabbitmq chart's own topology
+  ##                                 controller
+  ##                                 (manifests.deployment_topology_controller)
+  ##   rabbitmq.com               -- the upstream messaging-topology-operator,
+  ##                                 which must then be deployed separately,
+  ##                                 along with a RabbitmqCluster named after
+  ##                                 endpoints.oslo_messaging.hosts.default for
+  ##                                 rabbitmqClusterReference to resolve to
+  api_group: rabbitmq.osh.openstack.org
+
 manifests:
   certificates: false
   configmap_bin: true
   configmap_etc: true
   deployment_api: true
-  ingress_api: true
   job_bootstrap: true
   job_db_init: true
   job_db_sync: true
@@ -743,12 +763,49 @@ manifests:
   job_ks_user: true
   pdb_api: true
   pod_test: true
+  # -- Declare this chart's messaging vhost, account and permissions
+  ## as RabbitMQ custom resources reconciled by the rabbitmq chart's
+  ## topology controller, instead of running the rabbit_init job. The
+  ## two are mutually exclusive.
+  rabbitmq_topology: false
   secret_db: true
   network_policy: false
-  secret_ingress_tls: true
   secret_keystone: true
   secret_rabbitmq: true
   secret_registry: true
-  service_ingress_api: true
   service_api: true
+
+# -- Extra K8s manifests to deploy. Either a list or a map of manifests.
+## Note: Supports use of custom Helm templates
+## Note: Helm replaces (instead of merging) list values when several values
+## files are combined, so if you need to define extraObjects in more than one
+## overrides file, use the map form and make sure the keys are unique across
+## those files. With the list form only the last file takes effect.
+extraObjects: {}
+  # osh_secrets_store:
+  #   apiVersion: secrets-store.csi.x-k8s.io/v1
+  #   kind: SecretProviderClass
+  #   metadata:
+  #     name: osh-secrets-store
+  #   spec:
+  #     provider: aws
+  #     parameters:
+  #       objects: |
+  #         - objectName: "osh"
+  #           objectType: "secretsmanager"
+  #           jmesPath:
+  #               - path: "client_id"
+  #                 objectAlias: "client_id"
+  #               - path: "client_secret"
+  #                 objectAlias: "client_secret"
+  #     secretObjects:
+  #     - data:
+  #       - key: client_id
+  #         objectName: client_id
+  #       - key: client_secret
+  #         objectName: client_secret
+  #       secretName: osh-secrets-store
+  #       type: Opaque
+  #       labels:
+  #         app.kubernetes.io/part-of: osh
 ...

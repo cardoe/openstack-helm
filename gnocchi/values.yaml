@@ -36,16 +36,16 @@ release_group: null
 
 images:
   tags:
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
-    gnocchi_storage_init: quay.io/airshipit/ceph-config-helper:ubuntu_jammy_20.2.0-1-20260116
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_noble
+    gnocchi_storage_init: quay.io/airshipit/ceph-config-helper:ubuntu_noble_20.2.4-1-20260902
     db_init_indexer: docker.io/library/postgres:9.5
     # using non-kolla images until kolla supports postgres as
     # an indexer
     db_init: quay.io/attcomdev/ubuntu-source-gnocchi-api:3.0.3
     db_sync: quay.io/attcomdev/ubuntu-source-gnocchi-api:3.0.3
-    ks_user: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_service: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_endpoints: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
+    ks_user: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_service: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_endpoints: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
     gnocchi_api: quay.io/attcomdev/ubuntu-source-gnocchi-api:3.0.3
     gnocchi_statsd: quay.io/attcomdev/ubuntu-source-gnocchi-statsd:3.0.3
     gnocchi_metricd: quay.io/attcomdev/ubuntu-source-gnocchi-metricd:3.0.3
@@ -69,14 +69,9 @@ jobs:
 
 network:
   api:
-    ingress:
-      public: true
-      classes:
-        namespace: "ingress-openstack"
-        cluster: "ingress-cluster"
-      annotations:
-        nginx.ingress.kubernetes.io/rewrite-target: /
-        haproxy.org/path-rewrite: /
+    # Pod port the Service routes to; null => Kubernetes uses the Service port.
+    # A deployment override sets this (e.g. 443) to point at a TLS sidecar.
+    target_port: null
     external_policy_local: false
     node_port:
       enabled: false
@@ -197,6 +192,13 @@ dependencies:
           service: local_image_registry
 
 pod:
+  # -- Extra sidecar containers and volumes to inject into the gnocchi-api
+  ## Deployment. Used e.g. by values_overrides/gnocchi/tls-gateway-and-sidecar.yaml
+  ## to add an nginx TLS-terminating sidecar. Keyed per component.
+  extraContainers:
+    gnocchi_api: []
+  extraVolumes:
+    gnocchi_api: []
   user:
     gnocchi:
       uid: 1000
@@ -349,28 +351,25 @@ pod:
           cpu: "2000m"
 
 conf:
-  apache: |
-    Listen 0.0.0.0:{{ tuple "metric" "internal" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
-
-    SetEnvIf X-Forwarded-For "^.*\..*\..*\..*" forwarded
-    CustomLog /dev/stdout combined env=!forwarded
-    CustomLog /dev/stdout proxy env=forwarded
-
-    <VirtualHost *:{{ tuple "metric" "internal" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}>
-        WSGIDaemonProcess gnocchi processes=1 threads=2 user=gnocchi group=gnocchi display-name=%{GROUP}
-        WSGIProcessGroup gnocchi
-        WSGIScriptAlias / "/var/lib/kolla/venv/lib/python2.7/site-packages/gnocchi/rest/app.wsgi"
-        WSGIApplicationGroup %{GLOBAL}
-
-        ErrorLog /dev/stderr
-        SetEnvIf X-Forwarded-For "^.*\..*\..*\..*" forwarded
-        CustomLog /dev/stdout combined env=!forwarded
-        CustomLog /dev/stdout proxy env=forwarded
-
-        <Directory "/var/lib/kolla/venv/lib/python2.7/site-packages/gnocchi/rest">
-              Require all granted
-        </Directory>
-    </VirtualHost>
+  gnocchi_api_uwsgi:
+    uwsgi:
+      add-header: "Connection: close"
+      buffer-size: 65535
+      die-on-term: true
+      enable-threads: true
+      exit-on-reload: false
+      hook-master-start: unix_signal:15 gracefully_kill_them_all
+      lazy-apps: true
+      log-x-forwarded-for: true
+      master: true
+      need-app: true
+      procname-prefix-spaced: "gnocchi-api:"
+      route-user-agent: '^kube-probe.* donotlog:'
+      thunder-lock: true
+      worker-reload-mercy: 80
+      module: gnocchi.rest.wsgi:application
+      processes: 1
+      threads: 2
   ceph:
     monitors: []
     admin_keyring: null
@@ -453,6 +452,11 @@ conf:
       workers: 1
     database:
       max_retries: -1
+      # -- Database connection URI. When empty the URI is auto-generated
+      ## from endpoints.oslo_db. Set to null to disable auto-generation,
+      ## e.g. when using an operator such as mariadb-operator that supplies
+      ## the connection string via a mounted configuration snippet.
+      connection: ""
     storage:
       driver: ceph
       ceph_pool: gnocchi.metrics
@@ -463,10 +467,16 @@ conf:
       provided_keyring: null
     indexer:
       driver: postgresql
+      # -- Indexer connection URI. When empty the URI is auto-generated
+      ## from endpoints.oslo_db (or oslo_db_postgresql). Set to null to
+      ## disable auto-generation.
+      url: ""
     keystone_authtoken:
       auth_type: password
       auth_version: v3
       memcache_security_strategy: ENCRYPT
+    oslo_concurrency:
+      lock_path: /var/lock
 
 ceph_client:
   configmap: ceph-etc
@@ -478,15 +488,18 @@ secrets:
     gnocchi: gnocchi-keystone-user
   oslo_db:
     admin: gnocchi-db-admin
-    gnocchi: gnocchi-db-user
   oslo_db_indexer:
     admin: gnocchi-db-indexer-admin
-    gnocchi: gnocchi-db-indexer-user
   rbd: gnocchi-rbd-keyring
   tls:
-    metric:
-      api:
-        public: gnocchi-tls-public
+    # CA bundle this chart trusts for OUTBOUND TLS calls (keystone). Null by
+    # default -> no CA is mounted and REQUESTS_CA_BUNDLE is left unset. A
+    # deployment override points this at a cert-manager CA-only secret carrying
+    # just ca.crt (no private key); it is mounted at
+    # /etc/ssl/certs/openstack-helm.crt. Assumes every server cert is signed by
+    # this single CA. The chart stays TLS-agnostic -- server certs and the nginx
+    # TLS sidecar live in the override.
+    ca: null
 
 bootstrap:
   enabled: false
@@ -495,6 +508,11 @@ bootstrap:
     openstack token issue
 
 # typically overridden by environmental
+identity:
+  openrc:
+    exclude_vars: []
+    extra_vars: []
+
 # values, but should include all endpoints
 # required by this chart
 endpoints:
@@ -638,7 +656,6 @@ manifests:
   daemonset_metricd: true
   daemonset_statsd: true
   deployment_api: true
-  ingress_api: true
   job_bootstrap: true
   job_clean: true
   job_db_drop: false
@@ -655,8 +672,40 @@ manifests:
   pod_gnocchi_test: true
   secret_db: true
   secret_keystone: true
-  secret_ingress_tls: true
   service_api: true
-  service_ingress_api: true
   service_statsd: true
+
+# -- Extra K8s manifests to deploy. Either a list or a map of manifests.
+## Note: Supports use of custom Helm templates
+## Note: Helm replaces (instead of merging) list values when several values
+## files are combined, so if you need to define extraObjects in more than one
+## overrides file, use the map form and make sure the keys are unique across
+## those files. With the list form only the last file takes effect.
+extraObjects: {}
+  # osh_secrets_store:
+  #   apiVersion: secrets-store.csi.x-k8s.io/v1
+  #   kind: SecretProviderClass
+  #   metadata:
+  #     name: osh-secrets-store
+  #   spec:
+  #     provider: aws
+  #     parameters:
+  #       objects: |
+  #         - objectName: "osh"
+  #           objectType: "secretsmanager"
+  #           jmesPath:
+  #               - path: "client_id"
+  #                 objectAlias: "client_id"
+  #               - path: "client_secret"
+  #                 objectAlias: "client_secret"
+  #     secretObjects:
+  #     - data:
+  #       - key: client_id
+  #         objectName: client_id
+  #       - key: client_secret
+  #         objectName: client_secret
+  #       secretName: osh-secrets-store
+  #       type: Opaque
+  #       labels:
+  #         app.kubernetes.io/part-of: osh
 ...

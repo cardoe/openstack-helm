@@ -10,6 +10,9 @@
         url: "{{ calico_manifest_url }}"
         dest: /tmp/calico.yaml
       register: calico_config
+      until: calico_config is succeeded
+      retries: 5
+      delay: 10
 
     - name: Change registry URL
       shell: sed -i -e 's#docker.io/calico/#quay.io/calico/#g' {{ calico_config.dest }}
@@ -20,7 +23,9 @@
 
 - name: Download Calico images on K8s nodes beforehand
   when: inventory_hostname in (groups['k8s_cluster'] | default([]))
-  shell: awk '/image:/ { print $2 }' {{ calico_config.dest }} | xargs -I{} crictl pull {}
+  shell: |
+    set -eo pipefail
+    awk '/image:/ { print $2 }' {{ calico_config.dest }} | xargs -I{} crictl pull {}
   environment:
     CONTAINER_RUNTIME_ENDPOINT: "unix:///run/containerd/containerd.sock"
     IMAGE_SERVICE_ENDPOINT: "unix:///run/containerd/containerd.sock"

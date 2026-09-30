@@ -1,0 +1,228 @@
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# Playbook for compute-kit deployment and testing.
+#
+# Supports both OVS and OVN backends. To deploy with OVN, include
+# "ovn.yaml" in osh_values_overrides at the job level:
+#   vars:
+#     osh_values_overrides:
+#       - "2026.1-ubuntu_noble.yaml"
+#       - "gateway.yaml"
+#       - "ovn.yaml"
+#
+# The ovn.yaml override files exist per chart (openvswitch, libvirt,
+# nova, neutron) and are applied automatically when present.
+#
+# Ceph (via Rook) and cinder are deployed by default, because that is the
+# shape of a real deployment and of every job that has the nodes for it. A
+# job on a nodeset with no storage nodes has to opt out explicitly:
+#   vars:
+#     cinder_enabled: false
+#
+# Usage in zuul.d job definition:
+#   run:
+#     - playbooks/deploy-env.yaml
+#     - playbooks/deploy-compute-kit.yaml
+---
+- hosts: primary
+  vars:
+    # This playbook is the one that deploys Rook, so it is also the one that
+    # can promise the stateful charts a StorageClass to claim from. True
+    # exactly when Ceph is deployed below; the role default is false so that
+    # every playbook which deploys mariadb or glance without Ceph keeps its
+    # host paths rather than waiting on a claim that can never bind.
+    osh_ceph_storage: "{{ cinder_enabled | default(true) | bool }}"
+  tasks:
+    - name: Prepare Kubernetes
+      include_role:
+        name: deploy-charts
+        tasks_from: prepare-k8s
+
+    - name: Prepare charts
+      include_role:
+        name: deploy-charts
+        tasks_from: prepare-charts
+
+    - name: Setup OpenStack client
+      include_role:
+        name: deploy-charts
+        tasks_from: setup-client
+
+    # Ceph, for cinder's RBD backend. Deployed before any OpenStack chart.
+    # On by default, so a job that cannot host Ceph has to set
+    # cinder_enabled: false rather than a job that can having to remember.
+    - name: Deploy Ceph Rook
+      include_role:
+        name: deploy-ceph
+      when: cinder_enabled | default(true)
+
+    - name: Deploy Ceph adapter Rook
+      include_role:
+        name: deploy-charts
+        tasks_from: ceph-adapter-rook
+      when: cinder_enabled | default(true)
+
+    # Skipped when the broker is provided by the upstream RabbitMQ operators
+    # instead, which playbooks/deploy-rabbitmq-operator.yaml has already set up.
+    - name: Deploy RabbitMQ
+      include_role:
+        name: deploy-charts
+        tasks_from: rabbitmq
+      when: not (rabbitmq_operator_enabled | default(false))
+
+    # Skipped when the database is provided by mariadb-operator instead, which
+    # playbooks/deploy-mariadb-operator.yaml has already set up.
+    - name: Deploy MariaDB
+      include_role:
+        name: deploy-charts
+        tasks_from: mariadb
+      when: not (mariadb_operator_enabled | default(false))
+
+    - name: Deploy Memcached
+      include_role:
+        name: deploy-charts
+        tasks_from: memcached
+
+    - name: Deploy Keystone
+      include_role:
+        name: deploy-charts
+        tasks_from: keystone
+
+    - name: Deploy Cinder
+      include_role:
+        name: deploy-charts
+        tasks_from: cinder
+      when: cinder_enabled | default(true)
+
+    - name: Deploy Heat
+      include_role:
+        name: deploy-charts
+        tasks_from: heat
+
+    # No osh_glance_backend here on purpose: the glance task picks "pvc" when
+    # Ceph is deployed and "local" when it is not, so this follows the same
+    # cinder_enabled flag as the rest of the storage configuration.
+    - name: Deploy Glance
+      include_role:
+        name: deploy-charts
+        tasks_from: glance
+
+    - name: Deploy Open vSwitch
+      include_role:
+        name: deploy-charts
+        tasks_from: openvswitch
+
+    - name: Deploy Libvirt
+      include_role:
+        name: deploy-charts
+        tasks_from: libvirt
+
+    - name: Deploy OVN
+      include_role:
+        name: deploy-charts
+        tasks_from: ovn
+      when: "'ovn.yaml' in (osh_values_overrides | default([]))"
+
+    - name: Deploy Placement
+      include_role:
+        name: deploy-charts
+        tasks_from: placement
+
+    - name: Deploy Nova
+      include_role:
+        name: deploy-charts
+        tasks_from: nova
+
+    - name: Deploy Neutron
+      include_role:
+        name: deploy-charts
+        tasks_from: neutron
+
+    # Optional horizon, enabled only by the TLS job so its nginx TLS sidecar is
+    # exercised. Deployed after the compute-kit charts (nova/neutron).
+    - name: Deploy Horizon
+      include_role:
+        name: deploy-charts
+        tasks_from: horizon
+      when: horizon_enabled | default(false)
+
+    - name: Run Helm tests
+      include_role:
+        name: deploy-charts
+        tasks_from: _test
+      vars:
+        osh_chart: "{{ item }}"
+      loop:
+        - neutron
+        - nova
+        - glance
+        - keystone
+
+    - name: Verify MariaDB TLS is used by services that enable it
+      include_role:
+        name: deploy-charts
+        tasks_from: _script
+      vars:
+        osh_script: verify-mariadb-tls.sh
+        osh_script_args: "{{ item }} {{ osh_namespace | default('osh') }}"
+        # nova no longer exposes a <svc>-db-user secret: its api and cell1 DB
+        # connections live in nova.conf (the [api_database] and [database]
+        # sections) and only cell0 keeps a user/admin secret pair.
+        # Point nova's check at the cell0 secrets; the empty string lets every
+        # other service fall back to the default <svc>-db-user / <svc>-db-admin.
+        osh_script_env:
+          USER_SECRET: "{{ 'nova-db-cell0-user' if item == 'nova' else '' }}"
+          ADMIN_SECRET: "{{ 'nova-db-cell0-admin' if item == 'nova' else '' }}"
+      loop:
+        - keystone
+        - glance
+        - nova
+        - neutron
+        - placement
+        - heat
+
+    - name: Verify RabbitMQ mTLS is used by services that enable it
+      include_role:
+        name: deploy-charts
+        tasks_from: _script
+      vars:
+        osh_script: verify-rabbitmq-tls.sh
+        osh_script_args: "{{ item }} {{ osh_namespace | default('osh') }}"
+      loop:
+        - keystone
+        - glance
+        - nova
+        - neutron
+        - heat
+
+    - name: Exercise the compute kit
+      include_role:
+        name: deploy-charts
+        tasks_from: nova_test
+
+    - name: Force a run of every CronJob
+      include_role:
+        name: deploy-charts
+        tasks_from: force-cronjob-run
+
+    # Self-skipping: exits 0 when no rabbitmq.osh.openstack.org resources exist,
+    # which is every job that still provisions messaging with the per-chart
+    # rabbit-init jobs. The definitions themselves are installed either way, so
+    # they do not distinguish the two paths.
+    - name: Verify the RabbitMQ topology custom resources reconciled
+      include_role:
+        name: deploy-charts
+        tasks_from: _script
+      vars:
+        osh_script: verify-rabbitmq-topology.sh
+        osh_script_args: "{{ osh_namespace | default('osh') }}"

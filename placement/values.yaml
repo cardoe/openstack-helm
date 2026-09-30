@@ -30,14 +30,14 @@ labels:
 images:
   pull_policy: IfNotPresent
   tags:
-    placement: quay.io/airshipit/placement:2025.1-ubuntu_noble
-    ks_user: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_service: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_endpoints: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    db_init: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    db_drop: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    placement_db_sync: quay.io/airshipit/placement:2025.1-ubuntu_noble
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
+    placement: quay.io/airshipit/placement:2026.1-ubuntu_noble
+    ks_user: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_service: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_endpoints: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    db_init: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    db_drop: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    placement_db_sync: quay.io/airshipit/placement:2026.1-ubuntu_noble
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_noble
     image_repo_sync: docker.io/docker:17.07.0
   local_registry:
     active: false
@@ -47,15 +47,10 @@ images:
 
 network:
   api:
+    # Pod port the Service routes to; null => Kubernetes uses the Service port.
+    # A deployment override sets this (e.g. 443) to point at a TLS sidecar.
+    target_port: null
     port: 8778
-    ingress:
-      public: true
-      classes:
-        namespace: "ingress-openstack"
-        cluster: "ingress-cluster"
-      annotations:
-        nginx.ingress.kubernetes.io/rewrite-target: /
-        haproxy.org/path-rewrite: /
     external_policy_local: false
     node_port:
       enabled: false
@@ -69,7 +64,11 @@ conf:
       use_syslog: false
       log_config_append: /etc/placement/logging.conf
     placement_database:
-      connection: null
+      # -- Database connection URI. When empty the URI is auto-generated
+      ## from endpoints.oslo_db. Set to null to disable auto-generation,
+      ## e.g. when using an operator such as mariadb-operator that supplies
+      ## the connection string via a mounted configuration snippet.
+      connection: ""
     keystone_authtoken:
       service_token_roles: service
       service_token_roles_required: true
@@ -77,6 +76,8 @@ conf:
       auth_type: password
       memcache_security_strategy: ENCRYPT
       service_type: placement
+    oslo_concurrency:
+      lock_path: /var/lock
   logging:
     loggers:
       keys:
@@ -149,13 +150,20 @@ conf:
       lazy-apps: true
       log-x-forwarded-for: true
       master: true
+      need-app: true
       procname-prefix-spaced: "placement-api:"
       route-user-agent: '^kube-probe.* donotlog:'
       thunder-lock: true
       worker-reload-mercy: 80
-      wsgi-file: /var/lib/openstack/bin/placement-api
+      module: placement.wsgi.api:application
       stats: 0.0.0.0:1717
       stats-http: true
+
+identity:
+  openrc:
+    exclude_vars: []
+    extra_vars: []
+
 endpoints:
   cluster_domain_suffix: cluster.local
   local_image_registry:
@@ -190,9 +198,6 @@ endpoints:
       admin:
         username: root
         password: password
-        secret:
-          tls:
-            internal: mariadb-tls-direct
       placement:
         username: placement
         password: password
@@ -276,17 +281,21 @@ endpoints:
         service: 8778
 
 pod:
+  # -- Extra sidecar containers and volumes to inject into the placement-api
+  ## Deployment. Used e.g. by values_overrides/placement/api-tls.yaml to add an
+  ## nginx TLS-terminating sidecar. Keyed per component.
+  extraContainers:
+    placement_api: []
+  extraVolumes:
+    placement_api: []
   security_context:
     placement:
       pod:
         runAsUser: 42424
       container:
         placement_api:
-          readOnlyRootFilesystem: false
-          runAsUser: 0
-        placement_mysql_migration:
-          readOnlyRootFilesystem: false
-          runAsUser: 0
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
   affinity:
     anti:
       type:
@@ -309,6 +318,17 @@ pod:
       placement:
         volumeMounts:
         volumes:
+    placement_db_sync:
+      init_container: null
+      placement_db_sync:
+        volumeMounts:
+        volumes:
+  # -- This allows users to add Kubernetes Projected Volumes to be mounted at /etc/placement/placement.conf.d/
+  ## This is a list of projected volume source objects for each deployment/statefulset/daemonset/cronjob
+  ## https://kubernetes.io/docs/concepts/storage/projected-volumes/
+  etcSources:
+    placement: []
+    placement_db_sync: []
   replicas:
     api: 1
   lifecycle:
@@ -381,7 +401,16 @@ pod:
     placement:
       api:
         liveness:
+          enabled: True
           port: 1717
+          params:
+            initialDelaySeconds: 5
+            periodSeconds: 10
+        readiness:
+          enabled: True
+          params:
+            initialDelaySeconds: 5
+            periodSeconds: 10
 
 secrets:
   identity:
@@ -389,12 +418,19 @@ secrets:
     placement: placement-keystone-user
   oslo_db:
     admin: placement-db-admin
-    placement: placement-db-user
   tls:
-    placement:
-      api:
-        public: placement-tls-public
-        internal: placement-tls-api
+    # Client certificate this chart presents for mTLS backend connections.
+    # Separate from the MariaDB server certificate.
+    client:
+      placement: placement-client
+    # CA bundle this chart trusts for OUTBOUND TLS calls (keystone). Null by
+    # default -> no CA is mounted and REQUESTS_CA_BUNDLE is left unset. A
+    # deployment override points this at a cert-manager CA-only secret carrying
+    # just ca.crt (no private key); it is mounted at
+    # /etc/ssl/certs/openstack-helm.crt. Assumes every server cert is signed by
+    # this single CA. The chart stays TLS-agnostic -- server certs and the nginx
+    # TLS sidecar live in the override.
+    ca: null
   oci_image_registry:
     placement: placement-oci-image-registry
 
@@ -444,22 +480,33 @@ dependencies:
         - endpoint: internal
           service: oslo_db
 
-# NOTE(helm_hook): helm_hook might break for helm2 binary.
-# set helm3_hook: false when using the helm2 binary.
-helm3_hook: true
-
 tls:
-  identity: false
   oslo_messaging: false
   oslo_db: false
 
+mariadb_db:
+  # -- API group of the MariaDB custom resources this chart renders when
+  ## manifests.mariadb_db is enabled. Either group works: the resources are
+  ## the same, only who reconciles them differs.
+  ##   mariadb.osh.openstack.org -- the mariadb chart's own db controller
+  ##                                (manifests.deployment_db_controller)
+  ##   k8s.mariadb.com           -- the upstream mariadb-operator, which must
+  ##                                then be deployed separately
+  ## With k8s.mariadb.com and tls.oslo_db enabled, use mariadb-operator 0.37.0
+  ## or newer. User.spec.require was added in that release, so older operators
+  ## drop it and create accounts without REQUIRE X509.
+  api_group: mariadb.osh.openstack.org
+
 manifests:
-  certificates: false
   configmap_bin: true
   configmap_etc: true
   deployment: true
   job_image_repo_sync: true
   job_db_init: true
+  # -- Render the MariaDB Database/User/Grant/Connection custom resources
+  ## reconciled by the mariadb chart's db controller, instead of running the
+  ## db-init job. Mutually exclusive with job_db_init.
+  mariadb_db: false
   job_db_sync: true
   job_db_drop: false
   job_ks_endpoints: true
@@ -467,11 +514,43 @@ manifests:
   job_ks_user: true
   network_policy: false
   secret_db: true
-  secret_ingress_tls: true
   secret_registry: true
   pdb: true
-  ingress: true
   secret_keystone: true
-  service_ingress: true
+  secret_ks_etc: true
   service: true
+
+# -- Extra K8s manifests to deploy. Either a list or a map of manifests.
+## Note: Supports use of custom Helm templates
+## Note: Helm replaces (instead of merging) list values when several values
+## files are combined, so if you need to define extraObjects in more than one
+## overrides file, use the map form and make sure the keys are unique across
+## those files. With the list form only the last file takes effect.
+extraObjects: {}
+  # osh_secrets_store:
+  #   apiVersion: secrets-store.csi.x-k8s.io/v1
+  #   kind: SecretProviderClass
+  #   metadata:
+  #     name: osh-secrets-store
+  #   spec:
+  #     provider: aws
+  #     parameters:
+  #       objects: |
+  #         - objectName: "osh"
+  #           objectType: "secretsmanager"
+  #           jmesPath:
+  #               - path: "client_id"
+  #                 objectAlias: "client_id"
+  #               - path: "client_secret"
+  #                 objectAlias: "client_secret"
+  #     secretObjects:
+  #     - data:
+  #       - key: client_id
+  #         objectName: client_id
+  #       - key: client_secret
+  #         objectName: client_secret
+  #       secretName: osh-secrets-store
+  #       type: Opaque
+  #       labels:
+  #         app.kubernetes.io/part-of: osh
 ...

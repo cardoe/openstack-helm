@@ -74,27 +74,20 @@ spec:
 {{ dict "envAll" $envAll "component" "api" "container" "freezer_api" "type" "readiness" "probeTemplate" (include "probeTemplate" $envAll | fromYaml) | include "helm-toolkit.snippets.kubernetes_probe" | indent 10 }}
 {{ dict "envAll" $envAll "component" "api" "container" "freezer_api" "type" "liveness" "probeTemplate" (include "probeTemplate" $envAll | fromYaml) | include "helm-toolkit.snippets.kubernetes_probe" | indent 10 }}
           command:
-            - /tmp/freezer-api.sh
-            - start
+            - freezer-api
+            - --config-file
+            - /etc/freezer/freezer.conf
           env:
 {{- if or .Values.manifests.certificates .Values.tls.identity }}
             - name: REQUESTS_CA_BUNDLE
               value: "/etc/freezer/certs/ca.crt"
 {{- end }}
-          lifecycle:
-            preStop:
-              exec:
-                command:
-                  - /tmp/freezer-api.sh
-                  - stop
           ports:
             - name: freezer-api
               containerPort: {{ tuple "backup" "internal" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
           volumeMounts:
-            - name: freezer-bin
-              mountPath: /tmp/freezer-api.sh
-              subPath: freezer-api.sh
-              readOnly: true
+            - name: oslo-lock-path
+              mountPath: {{ .Values.conf.freezer.oslo_concurrency.lock_path }}
             - name: freezer-etc
               mountPath: /etc/freezer/freezer.conf
               subPath: freezer.conf
@@ -112,9 +105,11 @@ spec:
               subPath: policy.yaml
               readOnly: true
 {{ if $mounts_freezer_api.volumeMounts }}{{ toYaml $mounts_freezer_api.volumeMounts | indent 12 }}{{ end }}
-{{- dict "enabled" .Values.tls.oslo_db "name" .Values.endpoints.oslo_db.auth.admin.secret.tls.internal "path" "/etc/mysql/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
+{{- dict "enabled" .Values.tls.oslo_db "name" "client-certs" "path" "/etc/mysql/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
 {{- dict "enabled" .Values.tls.identity "name" .Values.secrets.tls.backup.api.internal "path" "/etc/freezer/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
       volumes:
+        - name: oslo-lock-path
+          emptyDir: {}
         - name: freezer-bin
           configMap:
             name: freezer-bin
@@ -123,7 +118,7 @@ spec:
           secret:
             secretName: freezer-etc
             defaultMode: 0444
-{{- dict "enabled" .Values.tls.oslo_db "name" .Values.endpoints.oslo_db.auth.admin.secret.tls.internal | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
+{{- dict "enabled" (or .Values.tls.oslo_db .Values.tls.oslo_messaging) "name" "client-certs" "secretName" .Values.secrets.tls.client.freezer | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
 {{- dict "enabled" .Values.tls.identity "name" .Values.secrets.tls.backup.api.internal | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
 {{ if $mounts_freezer_api.volumes }}{{ toYaml $mounts_freezer_api.volumes | indent 8 }}
 {{ end }}

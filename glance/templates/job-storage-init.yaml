@@ -53,9 +53,7 @@ metadata:
   labels:
 {{ tuple $envAll "glance" "storage-init" | include "helm-toolkit.snippets.kubernetes_metadata_labels" | indent 4 }}
   annotations:
-{{- if .Values.helm3_hook }}
     helm.sh/hook: post-install,post-upgrade
-{{- end }}
 {{ tuple $serviceAccountName $envAll | include "helm-toolkit.snippets.custom_job_annotations" | indent 4 }}
     {{ tuple $envAll | include "helm-toolkit.snippets.release_uuid" }}
 spec:
@@ -138,7 +136,7 @@ spec:
             {{- if eq .Values.storage "swift" }}
             - name: SWIFT_TMPURL_KEY
               value: {{ .Values.endpoints.object_store.auth.glance.tmpurlkey | quote }}
-{{- with $env := dict "ksUserSecret" $envAll.Values.secrets.identity.glance "useCA" .Values.manifests.certificates }}
+{{- with $env := dict "ksUserSecret" $envAll.Values.secrets.identity.glance "useCA" (not (empty .Values.secrets.tls.ca)) "envAll" $envAll }}
 {{- include "helm-toolkit.snippets.keystone_openrc_env_vars" $env | indent 12 }}
 {{- end }}
             {{ end }}
@@ -165,7 +163,7 @@ spec:
               readOnly: true
             {{ end }}
             {{ end }}
-{{- dict "enabled" .Values.manifests.certificates "name" .Values.secrets.tls.image.api.internal | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
+{{- dict "enabled" (not (empty .Values.secrets.tls.ca)) "name" .Values.secrets.tls.ca | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
       volumes:
         - name: pod-tmp
           emptyDir: {}
@@ -186,5 +184,5 @@ spec:
             secretName: {{ .Values.ceph_client.user_secret_name }}
         {{ end }}
         {{ end }}
-{{- dict "enabled" .Values.manifests.certificates "name" .Values.secrets.tls.image.api.internal | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
+{{- dict "enabled" (not (empty .Values.secrets.tls.ca)) "name" .Values.secrets.tls.ca | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
 {{- end }}

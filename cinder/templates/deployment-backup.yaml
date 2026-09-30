@@ -19,6 +19,10 @@ limitations under the License.
 
 {{- $mounts_cinder_backup := .Values.pod.mounts.cinder_backup.cinder_backup }}
 {{- $mounts_cinder_backup_init := .Values.pod.mounts.cinder_backup.init_container }}
+{{- $etcSources := .Values.pod.etcSources.cinder_backup }}
+{{- if eq .Values.manifests.secret_ks_etc true }}
+{{- $etcSources = append $etcSources (dict "secret" (dict "name" "cinder-ks-etc")) }}
+{{- end }}
 
 {{- $serviceAccountName := "cinder-backup" }}
 {{ tuple $envAll "backup" $serviceAccountName | include "helm-toolkit.snippets.kubernetes_pod_rbac_serviceaccount" }}
@@ -163,20 +167,25 @@ spec:
 {{ tuple $envAll $envAll.Values.pod.resources.backup | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
 {{ dict "envAll" $envAll "application" "cinder_backup" "container" "cinder_backup" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
           command:
-            - /tmp/cinder-backup.sh
+            - cinder-backup
+            - --config-file
+            - /etc/cinder/cinder.conf
+            - --config-dir
+            - /etc/cinder/cinder.conf.d
           terminationMessagePath: /var/log/termination-log
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: {{ .Values.conf.cinder.oslo_concurrency.lock_path }}
             - name: cinder-tmp
               mountPath: /var/lib/cinder/tmp
-            - name: cinder-bin
-              mountPath: /tmp/cinder-backup.sh
-              subPath: cinder-backup.sh
-              readOnly: true
             - name: cinder-etc
               mountPath: /etc/cinder/cinder.conf
               subPath: cinder.conf
+              readOnly: true
+            - name: cinder-etc-snippets
+              mountPath: /etc/cinder/cinder.conf.d/
               readOnly: true
             {{- if .Values.conf.cinder.DEFAULT.log_config_append }}
             - name: cinder-etc
@@ -264,34 +273,30 @@ spec:
             {{- if .Values.conf.enable_iscsi }}
             - name: host-rootfs
               mountPath: /mnt/host-rootfs
-              {{- if or ( gt .Capabilities.KubeVersion.Major "1" ) ( ge .Capabilities.KubeVersion.Minor "10" ) }}
               mountPropagation: HostToContainer
-              {{- end }}
             - name: host-dev
               mountPath: /dev
-              {{- if or ( gt .Capabilities.KubeVersion.Major "1" ) ( ge .Capabilities.KubeVersion.Minor "10" ) }}
               mountPropagation: HostToContainer
-              {{- end }}
             - name: runcryptsetup
               mountPath: /run/cryptsetup
             - name: runlock
               mountPath: /run/lock
             - name: etciscsi
               mountPath: /etc/iscsi
-              {{- if or ( gt .Capabilities.KubeVersion.Major "1" ) ( ge .Capabilities.KubeVersion.Minor "10" ) }}
               mountPropagation: HostToContainer
-              {{- end }}
             - name: usrlocalsbin
               mountPath: /usr/local/sbin
             - name: cinder-bin
               mountPath: /usr/local/sbin/iscsiadm
               subPath: iscsiadm
             {{- end }}
-{{- dict "enabled" $envAll.Values.manifests.certificates "name" $envAll.Values.endpoints.oslo_db.auth.admin.secret.tls.internal "path" "/etc/mysql/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
-{{- dict "enabled" $envAll.Values.manifests.certificates "name" $envAll.Values.endpoints.oslo_messaging.auth.admin.secret.tls.internal "path" "/etc/rabbitmq/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
+{{- dict "enabled" $envAll.Values.tls.oslo_db "name" "client-certs" "path" "/etc/mysql/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
+{{- dict "enabled" $envAll.Values.tls.oslo_messaging "name" "client-certs" "path" "/etc/rabbitmq/certs" | include "helm-toolkit.snippets.tls_volume_mount" | indent 12 }}
 {{ if $mounts_cinder_backup.volumeMounts }}{{ toYaml $mounts_cinder_backup.volumeMounts | indent 12 }}{{ end }}
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: cinder-tmp
           emptyDir: {}
@@ -299,6 +304,14 @@ spec:
           secret:
             secretName: cinder-etc
             defaultMode: 0444
+        - name: cinder-etc-snippets
+{{- if $etcSources }}
+          projected:
+            sources:
+{{ toYaml $etcSources | indent 14 }}
+{{- else }}
+          emptyDir: {}
+{{ end }}
         - name: cinder-bin
           configMap:
             name: cinder-bin
@@ -368,7 +381,6 @@ spec:
         - name: usrlocalsbin
           emptyDir: {}
         {{- end }}
-{{- dict "enabled" $envAll.Values.manifests.certificates "name" $envAll.Values.endpoints.oslo_db.auth.admin.secret.tls.internal | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
-{{- dict "enabled" $envAll.Values.manifests.certificates "name" $envAll.Values.endpoints.oslo_messaging.auth.admin.secret.tls.internal | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
+{{- dict "enabled" (or $envAll.Values.tls.oslo_db $envAll.Values.tls.oslo_messaging) "name" "client-certs" "secretName" $envAll.Values.secrets.tls.client.cinder | include "helm-toolkit.snippets.tls_volume" | indent 8 }}
 {{ if $mounts_cinder_backup.volumes }}{{ toYaml $mounts_cinder_backup.volumes | indent 8 }}{{ end }}
 {{- end }}

@@ -35,19 +35,19 @@ release_group: null
 images:
   tags:
     test: docker.io/xrally/xrally-openstack:2.0.0
-    glance_storage_init: quay.io/airshipit/ceph-config-helper:latest-ubuntu_jammy
-    glance_metadefs_load: quay.io/airshipit/glance:2025.1-ubuntu_noble
-    db_init: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    glance_db_sync: quay.io/airshipit/glance:2025.1-ubuntu_noble
-    db_drop: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_user: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_service: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_endpoints: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    rabbit_init: docker.io/rabbitmq:3.13-management
-    glance_api: quay.io/airshipit/glance:2025.1-ubuntu_noble
+    glance_storage_init: quay.io/airshipit/ceph-config-helper:latest-ubuntu_noble
+    glance_metadefs_load: quay.io/airshipit/glance:2026.1-ubuntu_noble
+    db_init: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    glance_db_sync: quay.io/airshipit/glance:2026.1-ubuntu_noble
+    db_drop: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_user: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_service: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_endpoints: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    rabbit_init: docker.io/rabbitmq:4.3.5-management
+    glance_api: quay.io/airshipit/glance:2026.1-ubuntu_noble
     # Bootstrap image requires curl
-    bootstrap: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
+    bootstrap: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_noble
     image_repo_sync: docker.io/docker:17.07.0
   pull_policy: "IfNotPresent"
   local_registry:
@@ -128,35 +128,48 @@ conf:
     override:
     append:
   paste:
-    pipeline:glance-api:
-      pipeline: cors healthcheck http_proxy_to_wsgi versionnegotiation osprofiler unauthenticated-context rootapp
-    pipeline:glance-api-caching:
-      pipeline: cors healthcheck http_proxy_to_wsgi versionnegotiation osprofiler unauthenticated-context cache rootapp
-    pipeline:glance-api-cachemanagement:
-      pipeline: cors healthcheck http_proxy_to_wsgi versionnegotiation osprofiler unauthenticated-context cache cachemanage rootapp
-    pipeline:glance-api-keystone:
-      pipeline: cors healthcheck http_proxy_to_wsgi versionnegotiation osprofiler authtoken audit context  rootapp
-    pipeline:glance-api-keystone+caching:
-      pipeline: cors healthcheck http_proxy_to_wsgi versionnegotiation osprofiler authtoken audit context cache rootapp
-    pipeline:glance-api-keystone+cachemanagement:
-      pipeline: cors healthcheck http_proxy_to_wsgi versionnegotiation osprofiler authtoken audit context cache cachemanage rootapp
-    pipeline:glance-api-trusted-auth:
-      pipeline: cors healthcheck http_proxy_to_wsgi versionnegotiation osprofiler context rootapp
-    pipeline:glance-api-trusted-auth+cachemanagement:
-      pipeline: cors healthcheck http_proxy_to_wsgi versionnegotiation osprofiler context cache cachemanage rootapp
+    composite:glance-api:
+      paste.composite_factory: glance.api:root_app_factory
+      /: api
+      /healthcheck: healthcheck
+    composite:glance-api-caching:
+      paste.composite_factory: glance.api:root_app_factory
+      /: api
+      /healthcheck: healthcheck
+    composite:glance-api-cachemanagement:
+      paste.composite_factory: glance.api:root_app_factory
+      /: api
+      /healthcheck: healthcheck
+    composite:glance-api-keystone:
+      paste.composite_factory: glance.api:root_app_factory
+      /: api
+      /healthcheck: healthcheck
+    composite:glance-api-keystone+caching:
+      paste.composite_factory: glance.api:root_app_factory
+      /: api
+      /healthcheck: healthcheck
+    composite:glance-api-keystone+cachemanagement:
+      paste.composite_factory: glance.api:root_app_factory
+      /: api
+      /healthcheck: healthcheck
+    composite:api:
+      paste.composite_factory: glance.api:pipeline_factory
+      default: cors http_proxy_to_wsgi versionnegotiation osprofiler unauthenticated-context rootapp
+      caching: cors http_proxy_to_wsgi versionnegotiation osprofiler unauthenticated-context cache rootapp
+      cachemanagement: cors http_proxy_to_wsgi versionnegotiation osprofiler unauthenticated-context cache cachemanage rootapp
+      keystone: cors http_proxy_to_wsgi versionnegotiation osprofiler authtoken context rootapp
+      keystone+caching: cors http_proxy_to_wsgi versionnegotiation osprofiler authtoken context cache rootapp
+      keystone+cachemanagement: cors http_proxy_to_wsgi versionnegotiation osprofiler authtoken context cache cachemanage rootapp
     composite:rootapp:
       paste.composite_factory: glance.api:root_app_factory
       /: apiversions
-      /v1: apiv1app
       /v2: apiv2app
     app:apiversions:
       paste.app_factory: glance.api.versions:create_resource
-    app:apiv1app:
-      paste.app_factory: glance.api.v1.router:API.factory
     app:apiv2app:
       paste.app_factory: glance.api.v2.router:API.factory
-    filter:healthcheck:
-      paste.filter_factory: oslo_middleware:Healthcheck.factory
+    app:healthcheck:
+      paste.app_factory: oslo_middleware:Healthcheck.app_factory
       backends: disable_by_file
       disable_by_file_path: /etc/glance/healthcheck_disable
     filter:versionnegotiation:
@@ -172,15 +185,10 @@ conf:
     filter:authtoken:
       paste.filter_factory: keystonemiddleware.auth_token:filter_factory
       delay_auth_decision: true
-    filter:audit:
-      paste.filter_factory: keystonemiddleware.audit:filter_factory
-      audit_map_file: /etc/glance/api_audit_map.conf
     filter:gzip:
       paste.filter_factory: glance.api.middleware.gzip:GzipMiddleware.factory
     filter:osprofiler:
       paste.filter_factory: osprofiler.web:WsgiMiddleware.factory
-      hmac_keys: SECRET_KEY  # DEPRECATED
-      enabled: yes  # DEPRECATED
     filter:cors:
       paste.filter_factory: oslo_middleware.cors:filter_factory
       oslo_config_project: glance
@@ -302,12 +310,27 @@ conf:
       flavor: keystone
     database:
       max_retries: -1
+      # -- Database connection URI. When empty the URI is auto-generated
+      ## from endpoints.oslo_db. Set to null to disable auto-generation,
+      ## e.g. when using an operator such as mariadb-operator that supplies
+      ## the connection string via a mounted configuration snippet.
+      connection: ""
     oslo_concurrency:
-      lock_path: "/var/lib/glance/tmp"
+      lock_path: /var/lock
     oslo_messaging_notifications:
       driver: messagingv2
     oslo_messaging_rabbit:
-      rabbit_ha_queues: true
+      rabbit_ha_queues: false
+      # -- Durable queues are required by RabbitMQ 4.x, which denies
+      ## transient non-exclusive queues by default. Also valid on 3.x.
+      amqp_durable_queues: true
+      # -- Quorum queues, which RabbitMQ 4.x requires: it denies transient
+      ## non-exclusive queues, and oslo.messaging declares its reply and fanout
+      ## queues that way unless the transient ones are quorum too.
+      ## amqp_durable_queues alone only covers the RPC and notification queues.
+      rabbit_quorum_queue: true
+      rabbit_transient_quorum_queue: true
+      use_queue_manager: true
     oslo_policy:
       policy_file: /etc/glance/policy.yaml
     cors: {}
@@ -401,14 +424,11 @@ conf:
     user_domain_id =
     {{- end -}}
   rabbitmq:
-    # NOTE(rk760n): adding rmq policy to mirror messages from notification queues and set expiration time for the ones
+    # NOTE(rk760n): adding rmq policy to set an expiration time on notification queues
     policies:
       - vhost: "glance"
         name: "ha_ttl_glance"
         definition:
-          # mirror messges to other nodes in rmq cluster
-          ha-mode: "all"
-          ha-sync-mode: "automatic"
           # 70s
           message-ttl: 70000
         priority: 0
@@ -425,31 +445,32 @@ conf:
       lazy-apps: true
       log-x-forwarded-for: true
       master: true
+      need-app: true
       procname-prefix-spaced: "glance-api:"
       route-user-agent: '^kube-probe.* donotlog:'
       thunder-lock: true
       worker-reload-mercy: 80
-      wsgi-file: /var/lib/openstack/bin/glance-wsgi-api
+      module: glance.wsgi.api:application
       stats: 0.0.0.0:1717
       stats-http: true
 
 network:
   api:
-    ingress:
-      public: true
-      classes:
-        namespace: "ingress-openstack"
-        cluster: "ingress-cluster"
-      annotations:
-        nginx.ingress.kubernetes.io/rewrite-target: /
-        nginx.ingress.kubernetes.io/proxy-body-size: "0"
-        haproxy.org/path-rewrite: /
+    # Pod port the Service routes to; null => Kubernetes uses the Service port.
+    # A deployment override sets this (e.g. 443) to point at a TLS sidecar.
+    target_port: null
     external_policy_local: false
     node_port:
       enabled: false
       port: 30092
 
 volume:
+  class_name: general
+  size: 2Gi
+  accessModes:
+    - ReadWriteOnce
+
+volume_staging:
   class_name: general
   size: 2Gi
   accessModes:
@@ -549,20 +570,32 @@ secrets:
     test: glance-keystone-test
   oslo_db:
     admin: glance-db-admin
-    glance: glance-db-user
   rbd: images-rbd-keyring
   oslo_messaging:
     admin: glance-rabbitmq-admin
     glance: glance-rabbitmq-user
   tls:
-    image:
-      api:
-        public: glance-tls-public
-        internal: glance-tls-api
+    # Client certificate this chart presents for all mTLS backend connections
+    # (MariaDB and RabbitMQ). Separate from the MariaDB and RabbitMQ server certs.
+    client:
+      glance: glance-client
+    # CA bundle this chart trusts for OUTBOUND TLS calls (keystone). Null by
+    # default -> no CA is mounted and REQUESTS_CA_BUNDLE is left unset. A
+    # deployment override points this at a cert-manager CA-only secret carrying
+    # just ca.crt (no private key); it is mounted at
+    # /etc/ssl/certs/openstack-helm.crt. Assumes every server cert is signed by
+    # this single CA. The chart stays TLS-agnostic -- server certs and the nginx
+    # TLS sidecar live in the override.
+    ca: null
   oci_image_registry:
     glance: glance-oci-image-registry
 
 # typically overridden by environmental
+identity:
+  openrc:
+    exclude_vars: []
+    extra_vars: []
+
 # values, but should include all endpoints
 # required by this chart
 endpoints:
@@ -662,9 +695,6 @@ endpoints:
       admin:
         username: root
         password: password
-        secret:
-          tls:
-            internal: mariadb-tls-direct
       glance:
         username: glance
         password: password
@@ -697,9 +727,6 @@ endpoints:
       admin:
         username: rabbitmq
         password: password
-        secret:
-          tls:
-            internal: rabbitmq-tls-direct
       glance:
         username: glance
         password: password
@@ -811,16 +838,15 @@ endpoints:
       dns:
         default: 53
         protocol: UDP
-  ingress:
-    namespace: null
-    name: ingress
-    hosts:
-      default: ingress
-    port:
-      ingress:
-        default: 80
 
 pod:
+  # -- Extra sidecar containers and volumes to inject into the glance-api
+  ## Deployment. Used e.g. by values_overrides/glance/api-tls.yaml to add an
+  ## nginx TLS-terminating sidecar. Keyed per component.
+  extraContainers:
+    glance_api: []
+  extraVolumes:
+    glance_api: []
   security_context:
     glance:
       pod:
@@ -835,9 +861,6 @@ pod:
         glance_api:
           readOnlyRootFilesystem: true
           allowPrivilegeEscalation: false
-        nginx:
-          readOnlyRootFilesystem: false
-          runAsUser: 0
     clean:
       pod:
         runAsUser: 42424
@@ -908,6 +931,13 @@ pod:
       glance_db_sync:
         volumeMounts:
         volumes:
+  # -- This allows users to add Kubernetes Projected Volumes to be mounted at /etc/glance/glance.conf.d/
+  ## This is a list of projected volume source objects for each deployment/statefulset/daemonset/cronjob
+  ## https://kubernetes.io/docs/concepts/storage/projected-volumes/
+  etcSources:
+    glance_api: []
+    glance_db_sync: []
+    glance_metadefs_load: []
   replicas:
     api: 1
   lifecycle:
@@ -934,6 +964,9 @@ pod:
             timeoutSeconds: 5
         liveness:
           enabled: true
+          # uwsgi stats socket (conf.glance_api_uwsgi.uwsgi.stats); served
+          # by the master, so it answers even when every worker is busy.
+          port: 1717
           params:
             initialDelaySeconds: 5
             periodSeconds: 10
@@ -1033,24 +1066,48 @@ pod:
           memory: "1024Mi"
           cpu: "2000m"
 
-# NOTE(helm_hook): helm_hook might break for helm2 binary.
-# set helm3_hook: false when using the helm2 binary.
-helm3_hook: true
-
 tls:
-  identity: false
   oslo_messaging: false
   oslo_db: false
 
+rabbitmq_topology:
+  # -- API group of the RabbitMQ topology custom resources this chart renders
+  ## when manifests.rabbitmq_topology is enabled. Either group works: the
+  ## resources are the same, only who reconciles them differs.
+  ##   rabbitmq.osh.openstack.org -- the rabbitmq chart's own topology
+  ##                                 controller
+  ##                                 (manifests.deployment_topology_controller)
+  ##   rabbitmq.com               -- the upstream messaging-topology-operator,
+  ##                                 which must then be deployed separately,
+  ##                                 along with a RabbitmqCluster named after
+  ##                                 endpoints.oslo_messaging.hosts.default for
+  ##                                 rabbitmqClusterReference to resolve to
+  api_group: rabbitmq.osh.openstack.org
+
+mariadb_db:
+  # -- API group of the MariaDB custom resources this chart renders when
+  ## manifests.mariadb_db is enabled. Either group works: the resources are
+  ## the same, only who reconciles them differs.
+  ##   mariadb.osh.openstack.org -- the mariadb chart's own db controller
+  ##                                (manifests.deployment_db_controller)
+  ##   k8s.mariadb.com           -- the upstream mariadb-operator, which must
+  ##                                then be deployed separately
+  ## With k8s.mariadb.com and tls.oslo_db enabled, use mariadb-operator 0.37.0
+  ## or newer. User.spec.require was added in that release, so older operators
+  ## drop it and create accounts without REQUIRE X509.
+  api_group: mariadb.osh.openstack.org
+
 manifests:
-  certificates: false
   configmap_bin: true
   configmap_etc: true
   deployment_api: true
-  ingress_api: true
   job_bootstrap: true
   job_clean: true
   job_db_init: true
+  # -- Render the MariaDB Database/User/Grant/Connection custom resources
+  ## reconciled by the mariadb chart's db controller, instead of running the
+  ## db-init job. Mutually exclusive with job_db_init.
+  mariadb_db: false
   job_db_sync: true
   job_db_drop: false
   job_image_repo_sync: true
@@ -1063,13 +1120,17 @@ manifests:
   pdb_api: true
   pod_rally_test: true
   pvc_images: true
+  pvc_tmp: true
   network_policy: false
+  # -- Declare this chart's messaging vhost, account and permissions
+  ## as RabbitMQ custom resources reconciled by the rabbitmq chart's
+  ## topology controller, instead of running the rabbit_init job. The
+  ## two are mutually exclusive.
+  rabbitmq_topology: false
   secret_db: true
-  secret_ingress_tls: true
   secret_keystone: true
   secret_rabbitmq: true
   secret_registry: true
-  service_ingress_api: true
   service_api: true
 
 # NOTE: This is for enable helm resource-policy to keep glance-images PVC.
@@ -1078,4 +1139,38 @@ manifests:
 # set keep_pvc: false when disallow helm resource-policy to keep for PVC.
 # This will allow helm to delete the PVC.
 keep_pvc: true
+
+# -- Extra K8s manifests to deploy. Either a list or a map of manifests.
+## Note: Supports use of custom Helm templates
+## Note: Helm replaces (instead of merging) list values when several values
+## files are combined, so if you need to define extraObjects in more than one
+## overrides file, use the map form and make sure the keys are unique across
+## those files. With the list form only the last file takes effect.
+extraObjects: {}
+  # osh_secrets_store:
+  #   apiVersion: secrets-store.csi.x-k8s.io/v1
+  #   kind: SecretProviderClass
+  #   metadata:
+  #     name: osh-secrets-store
+  #   spec:
+  #     provider: aws
+  #     parameters:
+  #       objects: |
+  #         - objectName: "osh"
+  #           objectType: "secretsmanager"
+  #           jmesPath:
+  #               - path: "client_id"
+  #                 objectAlias: "client_id"
+  #               - path: "client_secret"
+  #                 objectAlias: "client_secret"
+  #     secretObjects:
+  #     - data:
+  #       - key: client_id
+  #         objectName: client_id
+  #       - key: client_secret
+  #         objectName: client_secret
+  #       secretName: osh-secrets-store
+  #       type: Opaque
+  #       labels:
+  #         app.kubernetes.io/part-of: osh
 ...

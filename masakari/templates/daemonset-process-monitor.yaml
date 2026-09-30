@@ -78,29 +78,25 @@ spec:
 {{ tuple $envAll $envAll.Values.pod.resources.masakari_process_monitor | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
 {{ dict "envAll" $envAll "application" "masakari" "container" "masakari_process_monitor" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
           command:
-            - /tmp/masakari-process-monitor.sh
-            - start
+            - masakari-processmonitor
+            - --config-file
+            - /etc/masakari/masakarimonitors.conf
+            - --config-file
+            - /tmp/pod-shared/masakarimonitors.conf
           env:
             - name: COMPUTE_NODE_NAME
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
-          lifecycle:
-            preStop:
-              exec:
-                command:
-                  - /tmp/masakari-process-monitor.sh
-                  - stop
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
+            - name: oslo-lock-path
+              mountPath: {{ .Values.conf.masakari.oslo_concurrency.lock_path }}
             - name: etcmasakari
               mountPath: /etc/masakari
             - name: pod-shared
               mountPath: /tmp/pod-shared
-            - name: masakari-bin
-              mountPath: /tmp/masakari-process-monitor.sh
-              subPath: masakari-process-monitor.sh
             - name: masakari-etc
               mountPath: /etc/masakari/masakarimonitors.conf
               subPath: masakarimonitors.conf
@@ -110,6 +106,8 @@ spec:
               mountPath: /run
       volumes:
         - name: pod-tmp
+          emptyDir: {}
+        - name: oslo-lock-path
           emptyDir: {}
         - name: etcmasakari
           emptyDir: {}

@@ -38,18 +38,18 @@ release_group: null
 images:
   tags:
     test: docker.io/xrally/xrally-openstack:2.0.0
-    db_init: quay.io/airshipit/heat:2025.1-ubuntu_noble
-    trove_db_sync: quay.io/airshipit/trove:2025.1-ubuntu_noble
-    db_drop: quay.io/airshipit/heat:2025.1-ubuntu_noble
-    rabbit_init: docker.io/rabbitmq:3.13-management
-    ks_user: quay.io/airshipit/heat:2025.1-ubuntu_noble
-    ks_service: quay.io/airshipit/heat:2025.1-ubuntu_noble
-    ks_endpoints: quay.io/airshipit/heat:2025.1-ubuntu_noble
-    trove_api: quay.io/airshipit/trove:2025.1-ubuntu_noble
-    trove_conductor: quay.io/airshipit/trove:2025.1-ubuntu_noble
-    trove_taskmanager: quay.io/airshipit/trove:2025.1-ubuntu_noble
-    trove_db_purge: quay.io/airshipit/trove:2025.1-ubuntu_noble
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
+    db_init: quay.io/airshipit/heat:2026.1-ubuntu_noble
+    trove_db_sync: quay.io/airshipit/trove:2026.1-ubuntu_noble
+    db_drop: quay.io/airshipit/heat:2026.1-ubuntu_noble
+    rabbit_init: docker.io/rabbitmq:4.3.5-management
+    ks_user: quay.io/airshipit/heat:2026.1-ubuntu_noble
+    ks_service: quay.io/airshipit/heat:2026.1-ubuntu_noble
+    ks_endpoints: quay.io/airshipit/heat:2026.1-ubuntu_noble
+    trove_api: quay.io/airshipit/trove:2026.1-ubuntu_noble
+    trove_conductor: quay.io/airshipit/trove:2026.1-ubuntu_noble
+    trove_taskmanager: quay.io/airshipit/trove:2026.1-ubuntu_noble
+    trove_db_purge: quay.io/airshipit/trove:2026.1-ubuntu_noble
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_noble
     image_repo_sync: docker.io/docker:17.07.0
   pull_policy: "IfNotPresent"
   local_registry:
@@ -281,14 +281,6 @@ pod:
 
 network:
   api:
-    ingress:
-      public: true
-      classes:
-        namespace: "ingress-openstack"
-        cluster: "ingress-cluster"
-      annotations:
-        nginx.ingress.kubernetes.io/rewrite-target: /
-        haproxy.org/path-rewrite: /
     external_policy_local: false
     node_port:
       enabled: false
@@ -343,7 +335,11 @@ conf:
       trove_volume_support: true
       network_isolation: false
     database:
-      connection: null
+      # -- Database connection URI. When empty the URI is auto-generated
+      ## from endpoints.oslo_db. Set to null to disable auto-generation,
+      ## e.g. when using an operator such as mariadb-operator that supplies
+      ## the connection string via a mounted configuration snippet.
+      connection: ""
     keystone_authtoken:
       auth_type: password
       auth_version: v3
@@ -356,9 +352,19 @@ conf:
     oslo_messaging_notifications:
       driver: messagingv2
     oslo_messaging_rabbit:
-      rabbit_ha_queues: true
+      rabbit_ha_queues: false
+      # -- Durable queues are required by RabbitMQ 4.x, which denies
+      ## transient non-exclusive queues by default. Also valid on 3.x.
+      amqp_durable_queues: true
+      # -- Quorum queues, which RabbitMQ 4.x requires: it denies transient
+      ## non-exclusive queues, and oslo.messaging declares its reply and fanout
+      ## queues that way unless the transient ones are quorum too.
+      ## amqp_durable_queues alone only covers the RPC and notification queues.
+      rabbit_quorum_queue: true
+      rabbit_transient_quorum_queue: true
+      use_queue_manager: true
     oslo_concurrency:
-      lock_path: /var/lib/trove/tmp
+      lock_path: /var/lock
     oslo_policy:
       policy_file: /etc/trove/policy.yaml
   logging:
@@ -542,11 +548,12 @@ secrets:
     trove: trove-keystone-user
   oslo_db:
     admin: trove-db-admin
-    trove: trove-db-user
   oslo_messaging:
     admin: trove-rabbitmq-admin
     trove: trove-rabbitmq-user
   tls:
+    client:
+      trove: trove-client
     database:
       api:
         public: trove-tls-public
@@ -555,6 +562,11 @@ secrets:
     trove: trove-oci-image-registry-key
 
 # typically overridden by environmental
+identity:
+  openrc:
+    exclude_vars: []
+    extra_vars: []
+
 # values, but should include all endpoints
 # required by this chart
 endpoints:
@@ -676,9 +688,6 @@ endpoints:
       admin:
         username: root
         password: password
-        secret:
-          tls:
-            internal: mariadb-tls-direct
       trove:
         username: trove
         password: password
@@ -696,9 +705,6 @@ endpoints:
       admin:
         username: rabbitmq
         password: password
-        secret:
-          tls:
-            internal: rabbitmq-tls-direct
       trove:
         username: trove
         password: password
@@ -819,6 +825,10 @@ endpoints:
         default: 9292
         public: 80
 
+tls:
+  oslo_db: false
+  oslo_messaging: false
+
 manifests:
   certificates: false
   configmap_bin: true
@@ -827,7 +837,6 @@ manifests:
   deployment_api: true
   deployment_conductor: true
   deployment_taskmanager: true
-  ingress_api: true
   job_bootstrap: false
   job_db_init: true
   job_db_sync: true
@@ -841,12 +850,41 @@ manifests:
   pdb_api: true
   pod_rally_test: true
   secret_db: true
-  secret_ingress_tls: true
   secret_keystone: true
   secret_rabbitmq: true
   secret_registry: true
   service_api: true
-  service_ingress_api: true
-
-helm3_hook: true
+# -- Extra K8s manifests to deploy. Either a list or a map of manifests.
+## Note: Supports use of custom Helm templates
+## Note: Helm replaces (instead of merging) list values when several values
+## files are combined, so if you need to define extraObjects in more than one
+## overrides file, use the map form and make sure the keys are unique across
+## those files. With the list form only the last file takes effect.
+extraObjects: {}
+  # osh_secrets_store:
+  #   apiVersion: secrets-store.csi.x-k8s.io/v1
+  #   kind: SecretProviderClass
+  #   metadata:
+  #     name: osh-secrets-store
+  #   spec:
+  #     provider: aws
+  #     parameters:
+  #       objects: |
+  #         - objectName: "osh"
+  #           objectType: "secretsmanager"
+  #           jmesPath:
+  #               - path: "client_id"
+  #                 objectAlias: "client_id"
+  #               - path: "client_secret"
+  #                 objectAlias: "client_secret"
+  #     secretObjects:
+  #     - data:
+  #       - key: client_id
+  #         objectName: client_id
+  #       - key: client_secret
+  #         objectName: client_secret
+  #       secretName: osh-secrets-store
+  #       type: Opaque
+  #       labels:
+  #         app.kubernetes.io/part-of: osh
 ...

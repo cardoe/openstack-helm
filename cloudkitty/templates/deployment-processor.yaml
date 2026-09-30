@@ -17,6 +17,10 @@ limitations under the License.
 
 {{- $mounts_cloudkitty_processor := .Values.pod.mounts.cloudkitty_processor.cloudkitty_processor }}
 {{- $mounts_cloudkitty_processor_init := .Values.pod.mounts.cloudkitty_processor.init_container }}
+{{- $etcSources := .Values.pod.etcSources.cloudkitty_processor }}
+{{- if .Values.manifests.secret_ks_etc }}
+{{- $etcSources = append $etcSources (dict "secret" (dict "name" "cloudkitty-ks-etc")) }}
+{{- end }}
 
 {{- $serviceAccountName := "cloudkitty-processor" }}
 {{- tuple $envAll "cloudkitty_processor" $serviceAccountName | include "helm-toolkit.snippets.kubernetes_pod_rbac_serviceaccount" }}
@@ -61,21 +65,16 @@ spec:
 {{ tuple $envAll $envAll.Values.pod.resources.cloudkitty_processor | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
 {{ dict "envAll" $envAll "application" "cloudkitty" "container" "cloudkitty_processor" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
           command:
-            - /tmp/cloudkitty-processor.sh
-            - start
-          lifecycle:
-            preStop:
-              exec:
-                command:
-                  - /tmp/cloudkitty-processor.sh
-                  - stop
+            - cloudkitty-processor
+            - --config-file
+            - /etc/cloudkitty/cloudkitty.conf
+            - --config-dir
+            - /etc/cloudkitty/cloudkitty.conf.d
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
-            - name: cloudkitty-bin
-              mountPath: /tmp/cloudkitty-processor.sh
-              subPath: cloudkitty-processor.sh
-              readOnly: true
+            - name: oslo-lock-path
+              mountPath: {{ .Values.conf.cloudkitty.oslo_concurrency.lock_path }}
             - name: etccloudkitty
               mountPath: /etc/cloudkitty
             - name: cloudkitty-etc
@@ -94,6 +93,8 @@ spec:
       volumes:
         - name: pod-tmp
           emptyDir: {}
+        - name: oslo-lock-path
+          emptyDir: {}
         - name: etccloudkitty
           emptyDir: {}
         - name: cloudkitty-bin
@@ -105,9 +106,12 @@ spec:
             secretName: cloudkitty-etc
             defaultMode: 0444
         - name: cloudkitty-etc-snippets
+{{- if $etcSources }}
           projected:
             sources:
-              - secret:
-                  name: cloudkitty-ks-etc
+{{ toYaml $etcSources | indent 14 }}
+{{- else }}
+          emptyDir: {}
+{{ end }}
 {{ if $mounts_cloudkitty_processor.volumes}}{{ toYaml $mounts_cloudkitty_processor.volumes | indent 8 }}{{ end }}
 {{- end }}

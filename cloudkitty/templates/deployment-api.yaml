@@ -12,11 +12,27 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */}}
 
+{{/*
+Liveness and readiness answer different questions and must not share an
+endpoint. The API port is served by the uwsgi request workers, so it can only
+be answered while a worker is free -- and cloudkitty-api runs a single worker
+(conf.cloudkitty_api_uwsgi.uwsgi.processes). A saturated worker pool is a
+readiness condition (take the replica out of rotation until it drains), not a
+liveness one (kill it).
+
+Liveness therefore asks the uwsgi master through its stats socket, which the
+chart already opens (conf.cloudkitty_api_uwsgi.uwsgi.stats) and which the
+master serves independently of the workers.
+*/}}
 {{- define "cloudkittyApiLivenessProbeTemplate" }}
 httpGet:
   scheme: {{ tuple "rating" "internal" "api" . | include "helm-toolkit.endpoints.keystone_endpoint_scheme_lookup" | upper }}
   path: /
+  {{- if .Values.pod.probes.cloudkitty.default.liveness.port }}
+  port: {{ .Values.pod.probes.cloudkitty.default.liveness.port }}
+  {{- else }}
   port: {{ tuple "rating" "internal" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
+  {{- end }}
 {{- end }}
 
 {{- define "cloudkittyApiReadinessProbeTemplate" }}
@@ -32,6 +48,10 @@ httpGet:
 
 {{- $mounts_cloudkitty_api := .Values.pod.mounts.cloudkitty_api.cloudkitty_api }}
 {{- $mounts_cloudkitty_api_init := .Values.pod.mounts.cloudkitty_api.init_container }}
+{{- $etcSources := .Values.pod.etcSources.cloudkitty_api }}
+{{- if .Values.manifests.secret_ks_etc }}
+{{- $etcSources = append $etcSources (dict "secret" (dict "name" "cloudkitty-ks-etc")) }}
+{{- end }}
 
 {{- $serviceAccountName := "cloudkitty-api" }}
 {{- tuple $envAll "cloudkitty_api" $serviceAccountName | include "helm-toolkit.snippets.kubernetes_pod_rbac_serviceaccount" }}
@@ -76,14 +96,9 @@ spec:
 {{ tuple $envAll $envAll.Values.pod.resources.cloudkitty_api | include "helm-toolkit.snippets.kubernetes_resources" | indent 10 }}
 {{ dict "envAll" $envAll "application" "cloudkitty" "container" "cloudkitty_api" | include "helm-toolkit.snippets.kubernetes_container_security_context" | indent 10 }}
           command:
-            - /tmp/cloudkitty-api.sh
-            - start
-          lifecycle:
-            preStop:
-              exec:
-                command:
-                  - /tmp/cloudkitty-api.sh
-                  - stop
+            - uwsgi
+            - --ini
+            - /etc/cloudkitty/cloudkitty-api-uwsgi.ini
           ports:
             - name: c-api
               containerPort: {{ tuple "rating" "internal" "api" . | include "helm-toolkit.endpoints.endpoint_port_lookup" }}
@@ -92,9 +107,8 @@ spec:
           volumeMounts:
             - name: pod-tmp
               mountPath: /tmp
-            - name: cloudkitty-bin
-              mountPath: /tmp/cloudkitty-api.sh
-              subPath: cloudkitty-api.sh
+            - name: oslo-lock-path
+              mountPath: {{ .Values.conf.cloudkitty.oslo_concurrency.lock_path }}
             - name: etccloudkitty
               mountPath: /etc/cloudkitty
             - name: cloudkitty-etc
@@ -119,6 +133,8 @@ spec:
       volumes:
         - name: pod-tmp
           emptyDir: {}
+        - name: oslo-lock-path
+          emptyDir: {}
         - name: etccloudkitty
           emptyDir: {}
         - name: cloudkitty-bin
@@ -130,9 +146,12 @@ spec:
             secretName: cloudkitty-etc
             defaultMode: 0444
         - name: cloudkitty-etc-snippets
+{{- if $etcSources }}
           projected:
             sources:
-              - secret:
-                  name: cloudkitty-ks-etc
+{{ toYaml $etcSources | indent 14 }}
+{{- else }}
+          emptyDir: {}
+{{ end }}
 {{ if $mounts_cloudkitty_api.volumes }}{{ toYaml $mounts_cloudkitty_api.volumes | indent 8 }}{{ end }}
 {{- end }}

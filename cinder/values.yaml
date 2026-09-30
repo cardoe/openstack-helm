@@ -43,23 +43,23 @@ release_group: null
 images:
   tags:
     test: docker.io/xrally/xrally-openstack:2.0.0
-    db_init: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    cinder_db_sync: quay.io/airshipit/cinder:2025.1-ubuntu_noble
-    db_drop: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    rabbit_init: docker.io/rabbitmq:3.13-management
-    ks_user: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_service: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    ks_endpoints: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    cinder_api: quay.io/airshipit/cinder:2025.1-ubuntu_noble
-    bootstrap: quay.io/airshipit/openstack-client:2025.1-ubuntu_noble
-    cinder_scheduler: quay.io/airshipit/cinder:2025.1-ubuntu_noble
-    cinder_volume: quay.io/airshipit/cinder:2025.1-ubuntu_noble
-    cinder_volume_usage_audit: quay.io/airshipit/cinder:2025.1-ubuntu_noble
-    cinder_db_purge: quay.io/airshipit/cinder:2025.1-ubuntu_noble
-    cinder_storage_init: quay.io/airshipit/ceph-config-helper:latest-ubuntu_jammy
-    cinder_backup: quay.io/airshipit/cinder:2025.1-ubuntu_noble
-    cinder_backup_storage_init: quay.io/airshipit/ceph-config-helper:latest-ubuntu_jammy
-    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_jammy
+    db_init: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    cinder_db_sync: quay.io/airshipit/cinder:2026.1-ubuntu_noble
+    db_drop: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    rabbit_init: docker.io/rabbitmq:4.3.5-management
+    ks_user: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_service: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    ks_endpoints: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    cinder_api: quay.io/airshipit/cinder:2026.1-ubuntu_noble
+    bootstrap: quay.io/airshipit/openstack-client:2026.1-ubuntu_noble
+    cinder_scheduler: quay.io/airshipit/cinder:2026.1-ubuntu_noble
+    cinder_volume: quay.io/airshipit/cinder:2026.1-ubuntu_noble
+    cinder_volume_usage_audit: quay.io/airshipit/cinder:2026.1-ubuntu_noble
+    cinder_db_purge: quay.io/airshipit/cinder:2026.1-ubuntu_noble
+    cinder_storage_init: quay.io/airshipit/ceph-config-helper:latest-ubuntu_noble
+    cinder_backup: quay.io/airshipit/cinder:2026.1-ubuntu_noble
+    cinder_backup_storage_init: quay.io/airshipit/ceph-config-helper:latest-ubuntu_noble
+    dep_check: quay.io/airshipit/kubernetes-entrypoint:latest-ubuntu_noble
     image_repo_sync: docker.io/docker:17.07.0
   pull_policy: "IfNotPresent"
   local_registry:
@@ -83,11 +83,21 @@ jobs:
       failed: 1
 
 pod:
+  # -- Extra sidecar containers and volumes to inject into the cinder-api
+  ## Deployment. Used e.g. by values_overrides/cinder/tls-gateway-and-sidecar.yaml
+  ## to add an nginx TLS-terminating sidecar. Keyed per component.
+  extraContainers:
+    cinder_api: []
+  extraVolumes:
+    cinder_api: []
   probes:
     api:
       cinder-api:
         liveness:
           enabled: True
+          # uwsgi stats socket (conf.cinder_api_uwsgi.uwsgi.stats); served by
+          # the master, so it answers even when every worker is busy.
+          port: 1717
           params:
             initialDelaySeconds: 5
             periodSeconds: 10
@@ -256,6 +266,17 @@ pod:
       cinder_db_sync:
         volumeMounts:
         volumes:
+  # -- This allows users to add Kubernetes Projected Volumes to be mounted at /etc/cinder/cinder.conf.d/
+  ## This is a list of projected volume source objects for each deployment/statefulset/daemonset/cronjob
+  ## https://kubernetes.io/docs/concepts/storage/projected-volumes/
+  etcSources:
+    cinder_api: []
+    cinder_scheduler: []
+    cinder_volume: []
+    cinder_volume_usage_audit: []
+    cinder_db_purge: []
+    cinder_backup: []
+    cinder_db_sync: []
   replicas:
     api: 1
     volume: 1
@@ -408,6 +429,7 @@ pod:
 bootstrap:
   enabled: true
   ks_user: admin
+  script: null
   bootstrap_conf_backends: true
   volume_types:
     name:
@@ -441,14 +463,9 @@ bootstrap:
 
 network:
   api:
-    ingress:
-      public: true
-      classes:
-        namespace: "ingress-openstack"
-        cluster: "ingress-cluster"
-      annotations:
-        nginx.ingress.kubernetes.io/rewrite-target: /
-        haproxy.org/path-rewrite: /
+    # Pod port the Service routes to; null => Kubernetes uses the Service port.
+    # A deployment override sets this (e.g. 443) to point at a TLS sidecar.
+    target_port: null
     external_policy_local: false
     node_port:
       enabled: false
@@ -478,19 +495,7 @@ conf:
       use: call:cinder.api:root_app_factory
       /: apiversions
       /healthcheck: healthcheck
-      /v1: openstack_volume_api_v1
-      /v2: openstack_volume_api_v2
       /v3: openstack_volume_api_v3
-    composite:openstack_volume_api_v1:
-      use: call:cinder.api.middleware.auth:pipeline_factory
-      noauth: cors http_proxy_to_wsgi request_id faultwrap sizelimit osprofiler noauth apiv1
-      keystone: cors http_proxy_to_wsgi request_id faultwrap sizelimit osprofiler authtoken audit keystonecontext apiv1
-      keystone_nolimit: cors http_proxy_to_wsgi request_id faultwrap sizelimit osprofiler authtoken audit keystonecontext apiv1
-    composite:openstack_volume_api_v2:
-      use: call:cinder.api.middleware.auth:pipeline_factory
-      noauth: cors http_proxy_to_wsgi request_id faultwrap sizelimit osprofiler noauth apiv2
-      keystone: cors http_proxy_to_wsgi request_id faultwrap sizelimit osprofiler authtoken audit keystonecontext apiv2
-      keystone_nolimit: cors http_proxy_to_wsgi request_id faultwrap sizelimit osprofiler authtoken audit keystonecontext apiv2
     composite:openstack_volume_api_v3:
       use: call:cinder.api.middleware.auth:pipeline_factory
       noauth: cors http_proxy_to_wsgi request_id faultwrap sizelimit osprofiler noauth apiv3
@@ -511,10 +516,6 @@ conf:
       paste.filter_factory: cinder.api.middleware.auth:NoAuthMiddleware.factory
     filter:sizelimit:
       paste.filter_factory: oslo_middleware.sizelimit:RequestBodySizeLimiter.factory
-    app:apiv1:
-      paste.app_factory: cinder.api.v1.router:APIRouter.factory
-    app:apiv2:
-      paste.app_factory: cinder.api.v2.router:APIRouter.factory
     app:apiv3:
       paste.app_factory: cinder.api.v3.router:APIRouter.factory
     app:healthcheck:
@@ -551,8 +552,6 @@ conf:
       types: type
       volumes: volume
     service_endpoints:
-      volume: service/storage/block
-      volumev2: service/storage/block
       volumev3: service/storage/block
   cinder_sudoers: |
     # This sudoers file supports rootwrap for both Kolla and LOCI Images.
@@ -840,12 +839,19 @@ conf:
       log_config_append: /etc/cinder/logging.conf
       use_syslog: false
       use_stderr: true
-      enable_v1_api: false
-      enable_v2_api: false
       volume_name_template: "%s"
       osapi_volume_workers: 1
       glance_api_version: 2
       os_region_name: RegionOne
+      # NOTE: A static `host` value pins the cinder-volume service identity so
+      # it survives pod restarts. It is only safe with `pod.replicas.volume: 1`,
+      # because every pod would register under the same host name and compete
+      # for the same RPC queue, periodic tasks, and (without a Tooz coordination
+      # backend plus `[DEFAULT] cluster`) uncoordinated locks. To scale
+      # `cinder-volume` beyond one replica, set this to null/empty and enable
+      # `manifests.statefulset_volume: true`; the StatefulSet gives each pod a
+      # stable, unique hostname (cinder-volume-0, cinder-volume-1, ...) that is
+      # used as the host value.
       host: cinder-volume-worker
       # NOTE(portdirect): the bind port should not be defined, and is manipulated
       # via the endpoints section.
@@ -871,6 +877,11 @@ conf:
       internal_user_name: internal_cinder
     database:
       max_retries: -1
+      # -- Database connection URI. When empty the URI is auto-generated
+      ## from endpoints.oslo_db. Set to null to disable auto-generation,
+      ## e.g. when using an operator such as mariadb-operator that supplies
+      ## the connection string via a mounted configuration snippet.
+      connection: ""
     keystone_authtoken:
       service_token_roles: service
       service_token_roles_required: true
@@ -885,13 +896,23 @@ conf:
     oslo_policy:
       policy_file: /etc/cinder/policy.yaml
     oslo_concurrency:
-      lock_path: "/var/lib/cinder/tmp"
+      lock_path: /var/lock
     oslo_messaging_notifications:
       driver: messagingv2
     oslo_middleware:
       enable_proxy_headers_parsing: true
     oslo_messaging_rabbit:
-      rabbit_ha_queues: true
+      rabbit_ha_queues: false
+      # -- Durable queues are required by RabbitMQ 4.x, which denies
+      ## transient non-exclusive queues by default. Also valid on 3.x.
+      amqp_durable_queues: true
+      # -- Quorum queues, which RabbitMQ 4.x requires: it denies transient
+      ## non-exclusive queues, and oslo.messaging declares its reply and fanout
+      ## queues that way unless the transient ones are quorum too.
+      ## amqp_durable_queues alone only covers the RPC and notification queues.
+      rabbit_quorum_queue: true
+      rabbit_transient_quorum_queue: true
+      use_queue_manager: true
     coordination:
       backend_url: file:///var/lib/cinder/coordination
     service_user:
@@ -958,14 +979,11 @@ conf:
       format: "%(message)s"
       datefmt: "%Y-%m-%d %H:%M:%S"
   rabbitmq:
-    # NOTE(rk760n): adding rmq policy to mirror messages from notification queues and set expiration time for the ones
+    # NOTE(rk760n): adding rmq policy to set an expiration time on notification queues
     policies:
       - vhost: "cinder"
         name: "ha_ttl_cinder"
         definition:
-          # mirror messges to other nodes in rmq cluster
-          ha-mode: "all"
-          ha-sync-mode: "automatic"
           # 70s
           message-ttl: 70000
         priority: 0
@@ -1059,6 +1077,7 @@ conf:
   enable_iscsi: false
   enable_conversion_tmpfs: false
   conversion_tmpfs_size: "10Gi"
+  enable_conversion_pvc: false
   cinder_api_uwsgi:
     uwsgi:
       add-header: "Connection: close"
@@ -1070,15 +1089,22 @@ conf:
       lazy-apps: true
       log-x-forwarded-for: true
       master: true
+      need-app: true
       procname-prefix-spaced: "cinder-api:"
       route-user-agent: '^kube-probe.* donotlog:'
       thunder-lock: true
       worker-reload-mercy: 80
-      wsgi-file: /var/lib/openstack/bin/cinder-wsgi
+      module: cinder.wsgi.api:application
       stats: 0.0.0.0:1717
       stats-http: true
   db_purge:
     before: 30
+
+conversion:
+  volume:
+    class_name: general
+    size: 50Gi
+    access_mode: ReadWriteOnce
 
 backup:
   external_ceph_rbd:
@@ -1127,7 +1153,7 @@ dependencies:
         - endpoint: internal
           service: identity
         - endpoint: internal
-          service: volume
+          service: volumev3
     backup_storage_init:
       jobs: null
     bootstrap:
@@ -1135,7 +1161,7 @@ dependencies:
         - endpoint: internal
           service: identity
         - endpoint: internal
-          service: volume
+          service: volumev3
       pod:
         - requireSameNode: false
           labels:
@@ -1198,7 +1224,7 @@ dependencies:
         - endpoint: internal
           service: identity
         - endpoint: internal
-          service: volume
+          service: volumev3
     storage_init:
       jobs: null
     tests:
@@ -1206,7 +1232,7 @@ dependencies:
         - endpoint: internal
           service: identity
         - endpoint: internal
-          service: volume
+          service: volumev3
     volume:
       jobs:
         - cinder-db-sync
@@ -1218,7 +1244,7 @@ dependencies:
         - endpoint: internal
           service: identity
         - endpoint: internal
-          service: volume
+          service: volumev3
     volume_usage_audit:
       jobs:
         - cinder-db-sync
@@ -1230,7 +1256,7 @@ dependencies:
         - endpoint: internal
           service: identity
         - endpoint: internal
-          service: volume
+          service: volumev3
     image_repo_sync:
       services:
         - endpoint: internal
@@ -1245,13 +1271,13 @@ secrets:
   identity:
     admin: cinder-keystone-admin
     cinder: cinder-keystone-user
+    glance: cinder-keystone-glance
     nova: cinder-keystone-nova
     swift: cinder-keystone-swift
     service: cinder-keystone-service
     test: cinder-keystone-test
   oslo_db:
     admin: cinder-db-admin
-    cinder: cinder-db-user
   rbd:
     backup: cinder-backup-rbd-keyring
     volume: cinder-volume-rbd-keyring
@@ -1260,12 +1286,25 @@ secrets:
     admin: cinder-rabbitmq-admin
     cinder: cinder-rabbitmq-user
   tls:
-    volumev3:
-      api:
-        public: cinder-tls-public
-        internal: cinder-tls-api
+    # Client certificate this chart presents for all mTLS backend connections
+    # (MariaDB and RabbitMQ). Separate from the MariaDB and RabbitMQ server certs.
+    client:
+      cinder: cinder-client
+    # CA bundle this chart trusts for OUTBOUND TLS calls (keystone, glance). Null
+    # by default -> no CA is mounted and REQUESTS_CA_BUNDLE is left unset. A
+    # deployment override points this at a cert-manager CA-only secret carrying
+    # just ca.crt (no private key); it is mounted at
+    # /etc/ssl/certs/openstack-helm.crt. Assumes every server cert is signed by
+    # this single CA. The chart stays TLS-agnostic -- server certs and the nginx
+    # TLS sidecar live in the override.
+    ca: null
   oci_image_registry:
     cinder: cinder-oci-image-registry
+
+identity:
+  openrc:
+    exclude_vars: []
+    extra_vars: []
 
 # We use a different layout of the endpoints here to account for versioning
 # this swaps the service name and type, and should be rolled out to other
@@ -1313,6 +1352,14 @@ endpoints:
         role: admin,service
         region_name: RegionOne
         username: cinder
+        password: password
+        project_name: service
+        user_domain_name: service
+        project_domain_name: service
+      glance:
+        role: admin,service
+        region_name: RegionOne
+        username: glance
         password: password
         project_name: service
         user_domain_name: service
@@ -1377,52 +1424,6 @@ endpoints:
       api:
         default: 9292
         public: 80
-  volume:
-    name: cinder
-    hosts:
-      default: cinder-api
-      public: cinder
-    host_fqdn_override:
-      default: null
-      # NOTE(portdirect): this chart supports TLS for fqdn over-ridden public
-      # endpoints using the following format:
-      # public:
-      #   host: null
-      #   tls:
-      #     crt: null
-      #     key: null
-    path:
-      default: '/v1/%(tenant_id)s'
-      healthcheck: /healthcheck
-    scheme:
-      default: 'http'
-    port:
-      api:
-        default: 8776
-        public: 80
-  volumev2:
-    name: cinderv2
-    hosts:
-      default: cinder-api
-      public: cinder
-    host_fqdn_override:
-      default: null
-      # NOTE(portdirect): this chart supports TLS for fqdn over-ridden public
-      # endpoints using the following format:
-      # public:
-      #   host: null
-      #   tls:
-      #     crt: null
-      #     key: null
-    path:
-      default: '/v2/%(tenant_id)s'
-      healthcheck: /healthcheck
-    scheme:
-      default: 'http'
-    port:
-      api:
-        default: 8776
-        public: 80
   volumev3:
     name: cinderv3
     hosts:
@@ -1442,6 +1443,10 @@ endpoints:
       healthcheck: /healthcheck
     scheme:
       default: 'http'
+      # The cinder-api liveness/readiness probes hit the backend over the
+      # "service" scope; uwsgi serves plain HTTP there even when the override
+      # flips default/internal/public to https (TLS sidecar). Keep it http.
+      service: 'http'
     port:
       api:
         default: 8776
@@ -1451,9 +1456,6 @@ endpoints:
       admin:
         username: root
         password: password
-        secret:
-          tls:
-            internal: mariadb-tls-direct
       cinder:
         username: cinder
         password: password
@@ -1471,9 +1473,6 @@ endpoints:
       admin:
         username: rabbitmq
         password: password
-        secret:
-          tls:
-            internal: rabbitmq-tls-direct
       cinder:
         username: cinder
         password: password
@@ -1535,14 +1534,6 @@ endpoints:
       dns:
         default: 53
         protocol: UDP
-  ingress:
-    namespace: null
-    name: ingress
-    hosts:
-      default: ingress
-    port:
-      ingress:
-        default: 80
 
 network_policy:
   cinder:
@@ -1551,17 +1542,38 @@ network_policy:
     egress:
       - {}
 
-# NOTE(helm_hook): helm_hook might break for helm2 binary.
-# set helm3_hook: false when using the helm2 binary.
-helm3_hook: true
-
 tls:
-  identity: false
   oslo_messaging: false
   oslo_db: false
 
+rabbitmq_topology:
+  # -- API group of the RabbitMQ topology custom resources this chart renders
+  ## when manifests.rabbitmq_topology is enabled. Either group works: the
+  ## resources are the same, only who reconciles them differs.
+  ##   rabbitmq.osh.openstack.org -- the rabbitmq chart's own topology
+  ##                                 controller
+  ##                                 (manifests.deployment_topology_controller)
+  ##   rabbitmq.com               -- the upstream messaging-topology-operator,
+  ##                                 which must then be deployed separately,
+  ##                                 along with a RabbitmqCluster named after
+  ##                                 endpoints.oslo_messaging.hosts.default for
+  ##                                 rabbitmqClusterReference to resolve to
+  api_group: rabbitmq.osh.openstack.org
+
+mariadb_db:
+  # -- API group of the MariaDB custom resources this chart renders when
+  ## manifests.mariadb_db is enabled. Either group works: the resources are
+  ## the same, only who reconciles them differs.
+  ##   mariadb.osh.openstack.org -- the mariadb chart's own db controller
+  ##                                (manifests.deployment_db_controller)
+  ##   k8s.mariadb.com           -- the upstream mariadb-operator, which must
+  ##                                then be deployed separately
+  ## With k8s.mariadb.com and tls.oslo_db enabled, use mariadb-operator 0.37.0
+  ## or newer. User.spec.require was added in that release, so older operators
+  ## drop it and create accounts without REQUIRE X509.
+  api_group: mariadb.osh.openstack.org
+
 manifests:
-  certificates: false
   configmap_bin: true
   configmap_etc: true
   cron_volume_usage_audit: true
@@ -1570,12 +1582,27 @@ manifests:
   deployment_backup: true
   deployment_scheduler: true
   deployment_volume: true
-  ingress_api: true
+  # NOTE: When `statefulset_volume` is enabled, the `deployment_volume`
+  # manifest is automatically disabled. The StatefulSet gives each pod a
+  # stable, unique hostname (cinder-volume-0, cinder-volume-1, ...) which is
+  # required to scale `cinder-volume` beyond one replica. Also set
+  # `conf.cinder.DEFAULT.host` to null/empty so each pod uses its own pod
+  # name as the host value.
+  # -- Declare this chart's messaging vhost, account and permissions
+  ## as RabbitMQ custom resources reconciled by the rabbitmq chart's
+  ## topology controller, instead of running the rabbit_init job. The
+  ## two are mutually exclusive.
+  rabbitmq_topology: false
+  statefulset_volume: false
   job_backup_storage_init: true
   job_bootstrap: true
   job_clean: true
   job_create_internal_tenant: true
   job_db_init: true
+  # -- Render the MariaDB Database/User/Grant/Connection custom resources
+  ## reconciled by the mariadb chart's db controller, instead of running the
+  ## db-init job. Mutually exclusive with job_db_init.
+  mariadb_db: false
   job_image_repo_sync: true
   job_rabbit_init: true
   job_db_sync: true
@@ -1587,12 +1614,46 @@ manifests:
   pdb_api: true
   pod_rally_test: true
   pvc_backup: true
+  pvc_conversion: false
   network_policy: false
   secret_db: true
-  secret_ingress_tls: true
   secret_keystone: true
+  secret_ks_etc: true
   secret_rabbitmq: true
   secret_registry: true
   service_api: true
-  service_ingress_api: true
+
+# -- Extra K8s manifests to deploy. Either a list or a map of manifests.
+## Note: Supports use of custom Helm templates
+## Note: Helm replaces (instead of merging) list values when several values
+## files are combined, so if you need to define extraObjects in more than one
+## overrides file, use the map form and make sure the keys are unique across
+## those files. With the list form only the last file takes effect.
+extraObjects: {}
+  # osh_secrets_store:
+  #   apiVersion: secrets-store.csi.x-k8s.io/v1
+  #   kind: SecretProviderClass
+  #   metadata:
+  #     name: osh-secrets-store
+  #   spec:
+  #     provider: aws
+  #     parameters:
+  #       objects: |
+  #         - objectName: "osh"
+  #           objectType: "secretsmanager"
+  #           jmesPath:
+  #               - path: "client_id"
+  #                 objectAlias: "client_id"
+  #               - path: "client_secret"
+  #                 objectAlias: "client_secret"
+  #     secretObjects:
+  #     - data:
+  #       - key: client_id
+  #         objectName: client_id
+  #       - key: client_secret
+  #         objectName: client_secret
+  #       secretName: osh-secrets-store
+  #       type: Opaque
+  #       labels:
+  #         app.kubernetes.io/part-of: osh
 ...
